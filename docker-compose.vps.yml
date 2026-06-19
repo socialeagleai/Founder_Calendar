@@ -40,7 +40,7 @@ services:
       JWT_ALGORITHM: HS256
       ACCESS_TOKEN_EXPIRE_MINUTES: "10080"
       GOOGLE_CLIENT_ID: "815688246946-fc023atjo0dkeo2pqua2difekf3c11qa.apps.googleusercontent.com"
-      CORS_ORIGINS: "http://72.61.138.192:8081"
+      CORS_ORIGINS: "https://fc.socialeagle.ai"
     ports:
       - "8001:8000"
 
@@ -48,7 +48,7 @@ services:
     build:
       context: ./frontend
       args:
-        VITE_API_URL: "http://72.61.138.192:8001"
+        VITE_API_URL: "https://backend.fc.socialeagle.ai"
         VITE_GOOGLE_CLIENT_ID: "815688246946-fc023atjo0dkeo2pqua2difekf3c11qa.apps.googleusercontent.com"
     container_name: founder_cal_frontend
     restart: unless-stopped
