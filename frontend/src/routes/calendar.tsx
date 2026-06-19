@@ -1,18 +1,39 @@
-import { createFileRoute } from "@tanstack/react-router";
-import { useMemo, useState } from "react";
+import { createFileRoute, useNavigate } from "@tanstack/react-router";
+import { useEffect, useMemo, useState } from "react";
 import { AppShell } from "@/components/app-shell";
 import { MonthCalendar } from "@/components/month-calendar";
 import { NotesDrawer } from "@/components/notes-drawer";
 import { useStore } from "@/lib/store";
-import { format } from "date-fns";
+import { format, parseISO } from "date-fns";
 
 export const Route = createFileRoute("/calendar")({
+  // A `date` (YYYY-MM-DD) opens that day's drawer — used by global search.
+  validateSearch: (search: Record<string, unknown>): { date?: string } => ({
+    date: typeof search.date === "string" ? search.date : undefined,
+  }),
   component: CalendarPage,
 });
 
 function CalendarPage() {
-  const [month, setMonth] = useState(new Date());
-  const [selected, setSelected] = useState<Date | null>(null);
+  const navigate = useNavigate();
+  const { date: dateParam } = Route.useSearch();
+  const initialDate = dateParam ? parseISO(dateParam) : null;
+  const [month, setMonth] = useState(initialDate ?? new Date());
+  const [selected, setSelected] = useState<Date | null>(initialDate);
+
+  // Open (and jump the month to) the date passed via the URL, e.g. from search.
+  useEffect(() => {
+    if (!dateParam) return;
+    const d = parseISO(dateParam);
+    setSelected(d);
+    setMonth(d);
+  }, [dateParam]);
+
+  const closeDrawer = () => {
+    setSelected(null);
+    // Drop the ?date= param so searching the same day again reopens it.
+    if (dateParam) navigate({ to: "/calendar", search: {}, replace: true });
+  };
   // The calendar is the shared surface: show every org member's notes, boards
   // and meetings (calendarBoards/calendarMeetings), not just the current user's.
   const { notes, calendarBoards, calendarMeetings } = useStore();
@@ -62,7 +83,7 @@ function CalendarPage() {
         />
       </div>
 
-      <NotesDrawer date={selected} onClose={() => setSelected(null)} />
+      <NotesDrawer date={selected} onClose={closeDrawer} />
     </AppShell>
   );
 }
