@@ -86,7 +86,6 @@ function SettingsPage() {
         <TabsContent value="preferences" className="mt-6 space-y-4">
           <Card title="Notifications" desc="Choose what you want to be notified about.">
             <PrefRow label="Email notifications" desc="Get updates about your team and plans." />
-            <PrefRow label="Weekly digest" desc="A summary of your upcoming week, every Monday." />
             <PrefRow label="Mentions" desc="When teammates mention you on a plan." defaultOn />
           </Card>
         </TabsContent>
