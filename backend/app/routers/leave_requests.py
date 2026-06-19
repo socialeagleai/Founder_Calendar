@@ -5,8 +5,16 @@ from ..database import get_db
 from ..deps import get_current_user
 from ..models import Organization, TeamMember, User
 from ..schemas import LeaveRequestOut, MessageResponse
+from .notifications import notify
 
 router = APIRouter(prefix="/api/leave-requests", tags=["leave-requests"])
+
+
+def _notify_member(db: Session, member: TeamMember, message: str) -> None:
+    """Send an in-app notification to the member (if they have an account)."""
+    member_user = db.query(User).filter(User.email == member.email).first()
+    if member_user is not None:
+        notify(db, member_user.id, message)
 
 
 def _owned_org_ids(db: Session, user: User) -> list[str]:
@@ -72,6 +80,13 @@ def accept_leave_request(
 ) -> None:
     """Owner approves the request — the member is removed from the organization."""
     member = _get_request(db, user, member_id)
+    org = db.get(Organization, member.organization_id)
+    org_name = org.name if org else "the organization"
+    _notify_member(
+        db,
+        member,
+        f"Your request to leave {org_name} was approved — you've been removed.",
+    )
     db.delete(member)
     db.commit()
     return None
@@ -86,5 +101,12 @@ def decline_leave_request(
     """Owner declines — the member stays and is restored to Active."""
     member = _get_request(db, user, member_id)
     member.status = "Active"
+    org = db.get(Organization, member.organization_id)
+    org_name = org.name if org else "the organization"
+    _notify_member(
+        db,
+        member,
+        f"Your request to leave {org_name} was declined — you're still a member.",
+    )
     db.commit()
     return MessageResponse(detail="Leave request declined.")

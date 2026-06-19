@@ -13,6 +13,7 @@ from .routers import (
     leave_requests,
     meetings,
     notes,
+    notifications,
     organization,
     team,
     templates,
@@ -110,6 +111,7 @@ app.include_router(organization.router)
 app.include_router(team.router)
 app.include_router(invitations.router)
 app.include_router(leave_requests.router)
+app.include_router(notifications.router)
 app.include_router(notes.router)
 app.include_router(boards.router)
 app.include_router(meetings.router)

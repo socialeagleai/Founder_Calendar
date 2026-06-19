@@ -71,6 +71,14 @@ export interface LeaveRequest {
   memberEmail: string;
 }
 
+/** An in-app message for the current user (e.g. leave request approved/declined). */
+export interface AppNotification {
+  id: string;
+  message: string;
+  read: boolean;
+  createdAt: string;
+}
+
 export interface Note {
   id: string;
   date: string; // YYYY-MM-DD
@@ -213,6 +221,8 @@ interface AppState {
   invitations: Invitation[];
   // Members asking to leave orgs the current user owns (owner's bell).
   leaveRequests: LeaveRequest[];
+  // In-app messages for the current user (e.g. leave request outcome).
+  notifications: AppNotification[];
   access: Access | null;
   team: TeamMember[];
   notes: Note[];
@@ -272,6 +282,10 @@ interface AppState {
   acceptLeaveRequest: (memberId: string) => Promise<void>;
   declineLeaveRequest: (memberId: string) => Promise<void>;
 
+  // Notification bell — light poll of invites + leave requests + messages.
+  refreshBell: () => Promise<void>;
+  dismissNotification: (id: string) => Promise<void>;
+
   // Team
   inviteMember: (
     name: string,
@@ -300,6 +314,7 @@ export const useStore = create<AppState>((set, get) => ({
   myOrgs: [],
   invitations: [],
   leaveRequests: [],
+  notifications: [],
   access: null,
   team: [],
   notes: [],
@@ -332,6 +347,7 @@ export const useStore = create<AppState>((set, get) => ({
         myOrgs: [],
         invitations: [],
         leaveRequests: [],
+        notifications: [],
         access: null,
         team: [],
         notes: [],
@@ -365,6 +381,8 @@ export const useStore = create<AppState>((set, get) => ({
 
     if (myOrgs.length === 0) {
       setActiveOrgId(null);
+      // A user with no org can still have notifications (e.g. just got removed).
+      const notifications = await api.getNotifications().catch((): AppNotification[] => []);
       set({
         organization: null,
         access: null,
@@ -376,6 +394,7 @@ export const useStore = create<AppState>((set, get) => ({
         calendarBoards: [],
         calendarMeetings: [],
         leaveRequests: [],
+        notifications,
       });
       return;
     }
@@ -397,6 +416,7 @@ export const useStore = create<AppState>((set, get) => ({
       calendarBoards,
       calendarMeetings,
       leaveRequests,
+      notifications,
     ] = await Promise.all([
       api.getAccess().catch((): Access => ({ isOwner: true, role: "Owner", permissions: {} })),
       api.getOrganization(),
@@ -408,6 +428,7 @@ export const useStore = create<AppState>((set, get) => ({
       api.getBoards("org").catch(() => []),
       api.getMeetings("org").catch(() => []),
       api.getLeaveRequests().catch((): LeaveRequest[] => []),
+      api.getNotifications().catch((): AppNotification[] => []),
     ]);
     set({
       access,
@@ -420,6 +441,7 @@ export const useStore = create<AppState>((set, get) => ({
       calendarBoards,
       calendarMeetings,
       leaveRequests,
+      notifications,
     });
   },
 
@@ -572,6 +594,7 @@ export const useStore = create<AppState>((set, get) => ({
       myOrgs: [],
       invitations: [],
       leaveRequests: [],
+      notifications: [],
       access: null,
       team: [],
       notes: [],
@@ -616,6 +639,12 @@ export const useStore = create<AppState>((set, get) => ({
   leaveOrg: async () => {
     // Sends a leave request to the owner; the member keeps access until approved.
     await api.leaveOrganization();
+    // Optimistically flag our own membership so the "pending" state persists
+    // across navigation without waiting for a reload.
+    const email = get().currentUser?.email;
+    set((s) => ({
+      team: s.team.map((m) => (m.email === email ? { ...m, status: "LeaveRequested" } : m)),
+    }));
   },
 
   acceptInvitation: async (id) => {
@@ -648,6 +677,28 @@ export const useStore = create<AppState>((set, get) => ({
       leaveRequests: s.leaveRequests.filter((r) => r.id !== memberId),
       team: s.team.map((m) => (m.id === memberId ? { ...m, status: "Active" } : m)),
     }));
+  },
+
+  // Light refresh of everything shown in the bell — polled on an interval so
+  // invites, leave requests and messages appear without a manual reload.
+  refreshBell: async () => {
+    const [invitations, leaveRequests, notifications, team] = await Promise.all([
+      api.getInvitations().catch((): Invitation[] => []),
+      api.getLeaveRequests().catch((): LeaveRequest[] => []),
+      api.getNotifications().catch((): AppNotification[] => []),
+      api.getTeam().catch(() => null),
+    ]);
+    set((s) => ({
+      invitations,
+      leaveRequests,
+      notifications,
+      team: team ?? s.team,
+    }));
+  },
+
+  dismissNotification: async (id) => {
+    set((s) => ({ notifications: s.notifications.filter((n) => n.id !== id) }));
+    await api.dismissNotification(id).catch(() => {});
   },
 
   inviteMember: async (name, email, role, permissions) => {

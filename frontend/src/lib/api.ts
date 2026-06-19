@@ -16,6 +16,7 @@ import type {
   Access,
   BoardDetail,
   BoardSummary,
+  AppNotification,
   Box,
   Invitation,
   LeaveRequest,
@@ -205,6 +206,12 @@ export const api = {
 
   declineLeaveRequest: (memberId: string) =>
     request<void>(`/api/leave-requests/${memberId}/decline`, { method: "POST" }),
+
+  // ---- notifications (in-app messages) ----
+  getNotifications: () => request<AppNotification[]>("/api/notifications"),
+
+  dismissNotification: (id: string) =>
+    request<void>(`/api/notifications/${id}/dismiss`, { method: "POST" }),
 
   // ---- notes ----
   getNotes: () => request<Note[]>("/api/notes"),

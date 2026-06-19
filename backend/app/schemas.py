@@ -119,6 +119,15 @@ class LeaveRequestOut(CamelModel):
     member_email: str
 
 
+class NotificationOut(CamelModel):
+    """An in-app message for the current user (shown in the bell)."""
+
+    id: str
+    message: str
+    read: bool
+    created_at: datetime
+
+
 # ---------- Team ----------
 PageAccess = Literal["view", "edit"]
 # Per-page access map: { "<page-key>": "view" | "edit" }.

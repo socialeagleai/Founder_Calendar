@@ -56,9 +56,19 @@ const nav = [
 export function AppShell({ children }: { children: ReactNode }) {
   const navigate = useNavigate();
   const { status, currentUser, organization, access, logout } = useStore();
+  const refreshBell = useStore((s) => s.refreshBell);
   const user = useCurrentUser();
   const pathname = useRouterState({ select: (s) => s.location.pathname });
   const [mobileOpen, setMobileOpen] = useState(false);
+
+  // Poll the notification bell (invites, leave requests, messages) so it updates
+  // without a manual reload — including cross-user events from other people.
+  useEffect(() => {
+    if (!currentUser) return;
+    void refreshBell();
+    const id = setInterval(() => void refreshBell(), 15000);
+    return () => clearInterval(id);
+  }, [currentUser, refreshBell]);
 
   // Only the pages this user is allowed to open (owners see all).
   const visibleNav = nav.filter((item) => {
@@ -282,13 +292,15 @@ function OrgSwitcher() {
 function NotificationBell() {
   const invitations = useStore((s) => s.invitations);
   const leaveRequests = useStore((s) => s.leaveRequests);
+  const notifications = useStore((s) => s.notifications);
   const acceptInvitation = useStore((s) => s.acceptInvitation);
   const declineInvitation = useStore((s) => s.declineInvitation);
   const acceptLeaveRequest = useStore((s) => s.acceptLeaveRequest);
   const declineLeaveRequest = useStore((s) => s.declineLeaveRequest);
+  const dismissNotification = useStore((s) => s.dismissNotification);
   // Which leave request is in its "confirm remove" step.
   const [confirmingId, setConfirmingId] = useState<string | null>(null);
-  const count = invitations.length + leaveRequests.length;
+  const count = invitations.length + leaveRequests.length + notifications.length;
 
   const accept = async (inv: Invitation) => {
     try {
@@ -346,6 +358,18 @@ function NotificationBell() {
           </div>
         ) : (
           <>
+            {notifications.map((n) => (
+              <div key={n.id} className="flex items-start gap-2 px-3 py-2.5">
+                <p className="flex-1 text-sm leading-snug">{n.message}</p>
+                <button
+                  onClick={() => void dismissNotification(n.id)}
+                  title="Dismiss"
+                  className="shrink-0 rounded-md p-1 text-muted-foreground hover:bg-accent hover:text-foreground"
+                >
+                  <X className="h-3.5 w-3.5" />
+                </button>
+              </div>
+            ))}
             {invitations.map((inv) => (
               <div key={inv.id} className="px-3 py-2.5">
                 <p className="text-sm leading-snug">
