@@ -120,28 +120,23 @@ export function AuthLayout({ children }: { children: React.ReactNode }) {
   return (
     <div className="min-h-screen lg:grid lg:grid-cols-2">
       {/* Brand panel */}
-      <div className="relative hidden overflow-hidden bg-stat-gradient lg:flex lg:flex-col lg:justify-between lg:p-12 lg:text-primary-foreground">
+      <div className="relative hidden overflow-hidden bg-stat-gradient lg:flex lg:flex-col lg:justify-center lg:py-14 lg:pl-20 lg:pr-12 lg:text-primary-foreground">
         {/* decorative glows */}
         <div className="pointer-events-none absolute -left-20 -top-20 h-80 w-80 rounded-full bg-white/15 blur-3xl" />
         <div className="pointer-events-none absolute -bottom-24 -right-16 h-96 w-96 rounded-full bg-black/25 blur-3xl" />
         <div className="pointer-events-none absolute inset-0 opacity-[0.07] [background-image:linear-gradient(white_1px,transparent_1px),linear-gradient(90deg,white_1px,transparent_1px)] [background-size:36px_36px]" />
 
-        <motion.div
-          initial={{ opacity: 0, y: -8 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.4, ease: [0.22, 1, 0.36, 1] }}
-          className="relative"
-        >
-          <LogoBadge className="h-[120px] w-[120px]" />
-        </motion.div>
-
+        {/* Logo + content grouped and vertically centered on the left */}
         <motion.div
           initial={{ opacity: 0, y: 16 }}
           animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.5, delay: 0.1, ease: [0.22, 1, 0.36, 1] }}
+          transition={{ duration: 0.5, ease: [0.22, 1, 0.36, 1] }}
           className="relative max-w-md"
         >
-          <h2 className="text-4xl font-bold leading-tight tracking-tight">Plan. Align. Execute.</h2>
+          <LogoBadge className="h-[120px] w-[120px]" />
+          <h2 className="mt-12 text-4xl font-bold leading-tight tracking-tight">
+            Plan. Align. Execute.
+          </h2>
           <p className="mt-4 text-base text-primary-foreground/85">
             The monthly planning workspace built for founders, teams, and operators who ship.
           </p>
@@ -155,7 +150,7 @@ export function AuthLayout({ children }: { children: React.ReactNode }) {
           </div>
         </motion.div>
 
-        <div className="relative text-xs text-primary-foreground/70">
+        <div className="absolute bottom-10 left-20 text-xs text-primary-foreground/70">
           © {new Date().getFullYear()} Social Eagle — learn. build. operate
         </div>
       </div>
