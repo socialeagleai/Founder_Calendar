@@ -682,18 +682,26 @@ export const useStore = create<AppState>((set, get) => ({
   // Light refresh of everything shown in the bell — polled on an interval so
   // invites, leave requests and messages appear without a manual reload.
   refreshBell: async () => {
-    const [invitations, leaveRequests, notifications, team] = await Promise.all([
+    const [invitations, leaveRequests, notifications, team, myOrgs] = await Promise.all([
       api.getInvitations().catch((): Invitation[] => []),
       api.getLeaveRequests().catch((): LeaveRequest[] => []),
       api.getNotifications().catch((): AppNotification[] => []),
       api.getTeam().catch(() => null),
+      api.getOrganizations().catch((): OrgMembership[] | null => null),
     ]);
     set((s) => ({
       invitations,
       leaveRequests,
       notifications,
       team: team ?? s.team,
+      myOrgs: myOrgs ?? s.myOrgs,
     }));
+    // If our active org vanished (e.g. an owner approved our leave), reconcile
+    // the whole session so we land on another org — or onboarding if we have none.
+    const activeId = getActiveOrgId();
+    if (myOrgs && activeId && !myOrgs.some((o) => o.id === activeId)) {
+      await get().refreshOrgData();
+    }
   },
 
   dismissNotification: async (id) => {

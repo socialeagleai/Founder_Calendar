@@ -2,7 +2,9 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import {
   Outlet,
   createRootRouteWithContext,
+  useNavigate,
   useRouter,
+  useRouterState,
   HeadContent,
   Scripts,
 } from "@tanstack/react-router";
@@ -11,6 +13,7 @@ import { useEffect, type ReactNode } from "react";
 import appCss from "../styles.css?url";
 import { reportLovableError } from "../lib/lovable-error-reporting";
 import { useStore } from "../lib/store";
+import { pageKeyForPath } from "../lib/pages";
 import { themeInitScript } from "../lib/theme";
 import { Toaster } from "@/components/ui/sonner";
 
@@ -118,11 +121,27 @@ function RootShell({ children }: { children: ReactNode }) {
 
 function RootComponent() {
   const { queryClient } = Route.useRouteContext();
+  const navigate = useNavigate();
+  const pathname = useRouterState({ select: (s) => s.location.pathname });
+  const status = useStore((s) => s.status);
+  const currentUser = useStore((s) => s.currentUser);
+  const organization = useStore((s) => s.organization);
 
   // Hydrate the session from the stored token once, on the client.
   useEffect(() => {
     void useStore.getState().bootstrap();
   }, []);
+
+  // Global route guard: runs on every route regardless of what the page renders,
+  // so a user who loses their org (e.g. removed from their only company) is sent
+  // to onboarding instead of a blank page. Only guards real app pages; public
+  // pages (login/signup/onboarding/reset/etc.) have no page key and are skipped.
+  useEffect(() => {
+    if (status !== "ready") return;
+    if (!pageKeyForPath(pathname)) return;
+    if (!currentUser) navigate({ to: "/login" });
+    else if (!organization) navigate({ to: "/onboarding" });
+  }, [status, currentUser, organization, pathname, navigate]);
 
   return (
     <QueryClientProvider client={queryClient}>
