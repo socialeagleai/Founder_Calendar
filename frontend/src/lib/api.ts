@@ -132,6 +132,20 @@ export const api = {
   loginWithGoogle: (credential?: string) =>
     request<AuthResult>("/api/auth/google", { method: "POST", body: { credential }, auth: false }),
 
+  forgotPassword: (email: string) =>
+    request<{ detail: string }>("/api/auth/forgot-password", {
+      method: "POST",
+      body: { email },
+      auth: false,
+    }),
+
+  resetPassword: (token: string, password: string) =>
+    request<{ detail: string }>("/api/auth/reset-password", {
+      method: "POST",
+      body: { token, password },
+      auth: false,
+    }),
+
   me: () => request<ApiUser>("/api/auth/me"),
 
   getAccess: () => request<Access>("/api/auth/access"),

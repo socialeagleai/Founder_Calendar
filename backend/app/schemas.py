@@ -53,6 +53,19 @@ class UpdateProfileRequest(BaseModel):
     password: str | None = Field(default=None, min_length=6)
 
 
+class ForgotPasswordRequest(BaseModel):
+    email: EmailStr
+
+
+class ResetPasswordRequest(BaseModel):
+    token: str = Field(min_length=1)
+    password: str = Field(min_length=6)
+
+
+class MessageResponse(CamelModel):
+    detail: str
+
+
 # ---------- Organization ----------
 class OrgCreateRequest(BaseModel):
     name: str = Field(min_length=1)

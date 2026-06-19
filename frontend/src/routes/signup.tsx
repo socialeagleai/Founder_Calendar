@@ -2,6 +2,7 @@ import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useState } from "react";
 import { useStore } from "@/lib/store";
 import { Input } from "@/components/ui/input";
+import { PasswordInput } from "@/components/password-input";
 import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
@@ -70,9 +71,8 @@ function SignupPage() {
         <div className="grid gap-4 sm:grid-cols-2">
           <div className="space-y-2">
             <Label htmlFor="password">Password</Label>
-            <Input
+            <PasswordInput
               id="password"
-              type="password"
               required
               value={password}
               onChange={(e) => setPassword(e.target.value)}
@@ -81,9 +81,8 @@ function SignupPage() {
           </div>
           <div className="space-y-2">
             <Label htmlFor="confirm">Confirm</Label>
-            <Input
+            <PasswordInput
               id="confirm"
-              type="password"
               required
               value={confirm}
               onChange={(e) => setConfirm(e.target.value)}

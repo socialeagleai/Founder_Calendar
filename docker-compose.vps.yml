@@ -41,6 +41,17 @@ services:
       ACCESS_TOKEN_EXPIRE_MINUTES: "10080"
       GOOGLE_CLIENT_ID: "815688246946-fc023atjo0dkeo2pqua2difekf3c11qa.apps.googleusercontent.com"
       CORS_ORIGINS: "https://fc.socialeagle.ai"
+      # Base URL used to build password-reset links in emails.
+      APP_BASE_URL: "https://fc.socialeagle.ai"
+      # SMTP for password-reset emails. Real values come from an untracked
+      # /root/Founder_Calendar/.env on the VPS (kept out of git). When SMTP_HOST
+      # is empty the reset link is logged to the backend instead of emailed.
+      SMTP_HOST: "${SMTP_HOST:-}"
+      SMTP_PORT: "${SMTP_PORT:-587}"
+      SMTP_USER: "${SMTP_USER:-}"
+      SMTP_PASSWORD: "${SMTP_PASSWORD:-}"
+      SMTP_FROM: "${SMTP_FROM:-}"
+      SMTP_TLS: "${SMTP_TLS:-true}"
     ports:
       # Bound to localhost — only nginx (on this host) reaches it. Public
       # access is via https://backend.fc.socialeagle.ai.

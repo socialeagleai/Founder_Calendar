@@ -2,10 +2,11 @@ import { AnimatePresence, motion } from "framer-motion";
 import { useNavigate } from "@tanstack/react-router";
 import { format } from "date-fns";
 import { CalendarClock, Pencil, Trash2, X, Plus, Check, LayoutGrid, UserRound } from "lucide-react";
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import { useStore, usePageAccess, type Note } from "@/lib/store";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { toast } from "sonner";
 
 interface Props {
@@ -132,195 +133,215 @@ export function NotesDrawer({ date, onClose }: Props) {
             transition={{ type: "spring", damping: 30, stiffness: 280 }}
             className="fixed inset-y-0 right-0 z-50 flex w-full max-w-[400px] flex-col border-l border-border bg-background shadow-elevated"
           >
-            <div className="flex items-start justify-between border-b border-border px-6 py-5">
-              <div>
-                <div className="text-[11px] font-semibold uppercase tracking-widest text-muted-foreground">
-                  {format(date, "EEEE")}
+            <TooltipProvider delayDuration={150}>
+              <div className="flex items-start justify-between border-b border-border px-6 py-5">
+                <div>
+                  <div className="text-[11px] font-semibold uppercase tracking-widest text-muted-foreground">
+                    {format(date, "EEEE")}
+                  </div>
+                  <h2 className="mt-1 text-xl font-bold tracking-tight">
+                    {format(date, "d MMMM yyyy")}
+                  </h2>
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    {dayNotes.length} {dayNotes.length === 1 ? "note" : "notes"}
+                    {dayBoards.length > 0 &&
+                      ` · ${dayBoards.length} ${dayBoards.length === 1 ? "board" : "boards"}`}
+                    {dayMeetings.length > 0 &&
+                      ` · ${dayMeetings.length} ${dayMeetings.length === 1 ? "meeting" : "meetings"}`}
+                  </p>
                 </div>
-                <h2 className="mt-1 text-xl font-bold tracking-tight">
-                  {format(date, "d MMMM yyyy")}
-                </h2>
-                <p className="mt-1 text-xs text-muted-foreground">
-                  {dayNotes.length} {dayNotes.length === 1 ? "note" : "notes"}
-                  {dayBoards.length > 0 &&
-                    ` · ${dayBoards.length} ${dayBoards.length === 1 ? "board" : "boards"}`}
-                  {dayMeetings.length > 0 &&
-                    ` · ${dayMeetings.length} ${dayMeetings.length === 1 ? "meeting" : "meetings"}`}
-                </p>
+                <button
+                  onClick={onClose}
+                  className="rounded-md p-2 text-muted-foreground transition-colors hover:bg-accent"
+                >
+                  <X className="h-4 w-4" />
+                </button>
               </div>
-              <button
-                onClick={onClose}
-                className="rounded-md p-2 text-muted-foreground transition-colors hover:bg-accent"
-              >
-                <X className="h-4 w-4" />
-              </button>
-            </div>
 
-            <div className="flex-1 space-y-3 overflow-y-auto px-6 py-5">
-              {dayNotes.length === 0 &&
-                dayMeetings.length === 0 &&
-                dayBoards.length === 0 &&
-                !adding && (
-                  <button
-                    type="button"
-                    onClick={startAdd}
-                    disabled={!canEditNotes}
-                    title={canEditNotes ? "Add a note" : undefined}
-                    className="group flex w-full flex-col items-center justify-center rounded-2xl py-12 text-center transition-colors hover:bg-accent/40 disabled:cursor-default disabled:hover:bg-transparent"
-                  >
-                    <div className="grid h-14 w-14 place-items-center rounded-2xl bg-accent transition-all group-hover:scale-105 group-enabled:group-hover:bg-primary group-enabled:group-hover:text-primary-foreground">
-                      <Plus className="h-6 w-6 text-primary group-enabled:group-hover:text-primary-foreground" />
-                    </div>
-                    <p className="mt-4 text-sm font-medium">No notes for this day</p>
-                    <p className="mt-1 text-xs text-muted-foreground">
-                      {canEditNotes
-                        ? "What needs to happen on this day?"
-                        : "View only — no notes yet"}
-                    </p>
-                  </button>
-                )}
-
-              {dayNotes.map((n) =>
-                editingId === n.id ? (
-                  <Editor
-                    key={n.id}
-                    value={draft}
-                    onChange={setDraft}
-                    onSave={save}
-                    onCancel={cancel}
-                  />
-                ) : (
-                  <div
-                    key={n.id}
-                    className="group rounded-xl border border-border bg-card p-4 transition-all hover:shadow-soft"
-                  >
-                    <p className="whitespace-pre-wrap text-sm leading-relaxed">{n.content}</p>
-                    <div className="mt-3 flex items-center justify-between gap-2">
-                      <span className="shrink-0 text-[11px] text-muted-foreground">
-                        {format(new Date(n.updatedAt), "h:mm a")}
-                      </span>
-                      <div className="flex min-w-0 items-center gap-2">
-                        <CreatorBadge name={n.creatorName} />
-                        {canEditNotes && (
-                          <div className="flex shrink-0 gap-1 opacity-0 transition-opacity group-hover:opacity-100">
-                            <button
-                              onClick={() => startEdit(n)}
-                              className="rounded-md p-1.5 text-muted-foreground hover:bg-accent hover:text-foreground"
-                            >
-                              <Pencil className="h-3.5 w-3.5" />
-                            </button>
-                            <button
-                              onClick={async () => {
-                                try {
-                                  await deleteNote(n.id);
-                                  toast.success("Note deleted");
-                                } catch (err) {
-                                  toast.error(
-                                    err instanceof Error ? err.message : "Could not delete note",
-                                  );
-                                }
-                              }}
-                              className="rounded-md p-1.5 text-muted-foreground hover:bg-accent hover:text-primary"
-                            >
-                              <Trash2 className="h-3.5 w-3.5" />
-                            </button>
-                          </div>
-                        )}
+              <div className="flex-1 space-y-3 overflow-y-auto px-6 py-5">
+                {dayNotes.length === 0 &&
+                  dayMeetings.length === 0 &&
+                  dayBoards.length === 0 &&
+                  !adding && (
+                    <button
+                      type="button"
+                      onClick={startAdd}
+                      disabled={!canEditNotes}
+                      title={canEditNotes ? "Add a note" : undefined}
+                      className="group flex w-full flex-col items-center justify-center rounded-2xl py-12 text-center transition-colors hover:bg-accent/40 disabled:cursor-default disabled:hover:bg-transparent"
+                    >
+                      <div className="grid h-14 w-14 place-items-center rounded-2xl bg-accent transition-all group-hover:scale-105 group-enabled:group-hover:bg-primary group-enabled:group-hover:text-primary-foreground">
+                        <Plus className="h-6 w-6 text-primary group-enabled:group-hover:text-primary-foreground" />
                       </div>
+                      <p className="mt-4 text-sm font-medium">No notes for this day</p>
+                      <p className="mt-1 text-xs text-muted-foreground">
+                        {canEditNotes
+                          ? "What needs to happen on this day?"
+                          : "View only — no notes yet"}
+                      </p>
+                    </button>
+                  )}
+
+                {dayNotes.map((n) =>
+                  editingId === n.id ? (
+                    <Editor
+                      key={n.id}
+                      value={draft}
+                      onChange={setDraft}
+                      onSave={save}
+                      onCancel={cancel}
+                    />
+                  ) : (
+                    <HoverMeta key={n.id} createdAt={n.createdAt}>
+                      <div className="group rounded-xl border border-border bg-card p-4 transition-all hover:shadow-soft">
+                        <p className="whitespace-pre-wrap text-sm leading-relaxed">{n.content}</p>
+                        <div className="mt-3 flex items-center justify-between gap-2">
+                          <span className="shrink-0 text-[11px] text-muted-foreground">
+                            {format(new Date(n.updatedAt), "h:mm a")}
+                          </span>
+                          <div className="flex min-w-0 items-center gap-2">
+                            <CreatorBadge name={n.creatorName} />
+                            {canEditNotes && (
+                              <div className="flex shrink-0 gap-1 opacity-0 transition-opacity group-hover:opacity-100">
+                                <button
+                                  onClick={() => startEdit(n)}
+                                  className="rounded-md p-1.5 text-muted-foreground hover:bg-accent hover:text-foreground"
+                                >
+                                  <Pencil className="h-3.5 w-3.5" />
+                                </button>
+                                <button
+                                  onClick={async () => {
+                                    try {
+                                      await deleteNote(n.id);
+                                      toast.success("Note deleted");
+                                    } catch (err) {
+                                      toast.error(
+                                        err instanceof Error
+                                          ? err.message
+                                          : "Could not delete note",
+                                      );
+                                    }
+                                  }}
+                                  className="rounded-md p-1.5 text-muted-foreground hover:bg-accent hover:text-primary"
+                                >
+                                  <Trash2 className="h-3.5 w-3.5" />
+                                </button>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    </HoverMeta>
+                  ),
+                )}
+
+                {adding && (
+                  <Editor value={draft} onChange={setDraft} onSave={save} onCancel={cancel} />
+                )}
+
+                {dayBoards.length > 0 && (
+                  <div className="pt-2">
+                    <div className="mb-2 flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-widest text-muted-foreground">
+                      <LayoutGrid className="h-3.5 w-3.5" /> Boards
+                    </div>
+                    <div className="space-y-2">
+                      {dayBoards.map((b) => (
+                        <HoverMeta key={b.id} createdAt={b.createdAt}>
+                          <button
+                            onClick={() => openBoard(b.id)}
+                            className="group flex w-full items-center gap-3 rounded-xl border border-border bg-card p-3 text-left transition-all hover:shadow-soft"
+                          >
+                            <div className="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-accent text-primary">
+                              <LayoutGrid className="h-4 w-4" />
+                            </div>
+                            <div className="min-w-0 flex-1">
+                              <p className="truncate text-sm font-semibold">{b.title}</p>
+                              <p className="mt-0.5 text-[11px] text-muted-foreground">
+                                {b.boxCount} {b.boxCount === 1 ? "box" : "boxes"}
+                                {b.openTaskCount > 0 ? ` · ${b.openTaskCount} open` : ""}
+                              </p>
+                            </div>
+                            <CreatorBadge name={b.creatorName} />
+                          </button>
+                        </HoverMeta>
+                      ))}
                     </div>
                   </div>
-                ),
-              )}
-
-              {adding && (
-                <Editor value={draft} onChange={setDraft} onSave={save} onCancel={cancel} />
-              )}
-
-              {dayBoards.length > 0 && (
-                <div className="pt-2">
-                  <div className="mb-2 flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-widest text-muted-foreground">
-                    <LayoutGrid className="h-3.5 w-3.5" /> Boards
-                  </div>
-                  <div className="space-y-2">
-                    {dayBoards.map((b) => (
-                      <button
-                        key={b.id}
-                        onClick={() => openBoard(b.id)}
-                        className="group flex w-full items-center gap-3 rounded-xl border border-border bg-card p-3 text-left transition-all hover:shadow-soft"
-                      >
-                        <div className="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-accent text-primary">
-                          <LayoutGrid className="h-4 w-4" />
-                        </div>
-                        <div className="min-w-0 flex-1">
-                          <p className="truncate text-sm font-semibold">{b.title}</p>
-                          <p className="mt-0.5 text-[11px] text-muted-foreground">
-                            {b.boxCount} {b.boxCount === 1 ? "box" : "boxes"}
-                            {b.openTaskCount > 0 ? ` · ${b.openTaskCount} open` : ""}
-                          </p>
-                        </div>
-                        <CreatorBadge name={b.creatorName} />
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              {dayMeetings.length > 0 && (
-                <div className="pt-2">
-                  <div className="mb-2 flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-widest text-muted-foreground">
-                    <CalendarClock className="h-3.5 w-3.5" /> Meetings
-                  </div>
-                  <div className="space-y-2">
-                    {dayMeetings.map((m) => (
-                      <button
-                        key={m.id}
-                        onClick={() => openMeeting(m.id)}
-                        className="group flex w-full items-center gap-3 rounded-xl border border-border bg-card p-3 text-left transition-all hover:shadow-soft"
-                      >
-                        <div className="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-accent text-primary">
-                          <CalendarClock className="h-4 w-4" />
-                        </div>
-                        <div className="min-w-0 flex-1">
-                          <p className="truncate text-sm font-semibold">{m.name}</p>
-                          <p className="mt-0.5 text-[11px] text-muted-foreground">
-                            {m.schedule}
-                            {m.duration ? ` · ${m.duration}` : ""}
-                          </p>
-                        </div>
-                        <CreatorBadge name={m.creatorName} />
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              )}
-            </div>
-
-            {!adding && !editingId && (canEditNotes || canEditBoards || canEditMeetings) && (
-              <div className="space-y-2 border-t border-border bg-secondary/40 px-6 py-4">
-                {canEditNotes && (
-                  <Button
-                    onClick={startAdd}
-                    className="h-11 w-full bg-primary text-primary-foreground hover:bg-primary-dark"
-                  >
-                    <Plus className="h-4 w-4" /> Add Note
-                  </Button>
                 )}
-                {canEditBoards && (
-                  <Button variant="outline" onClick={goToBoard} className="h-11 w-full">
-                    <LayoutGrid className="h-4 w-4" /> Add Board
-                  </Button>
-                )}
-                {canEditMeetings && (
-                  <Button variant="outline" onClick={addMeeting} className="h-11 w-full">
-                    <CalendarClock className="h-4 w-4" /> Add Meeting
-                  </Button>
+
+                {dayMeetings.length > 0 && (
+                  <div className="pt-2">
+                    <div className="mb-2 flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-widest text-muted-foreground">
+                      <CalendarClock className="h-3.5 w-3.5" /> Meetings
+                    </div>
+                    <div className="space-y-2">
+                      {dayMeetings.map((m) => (
+                        <HoverMeta key={m.id} createdAt={m.createdAt}>
+                          <button
+                            onClick={() => openMeeting(m.id)}
+                            className="group flex w-full items-center gap-3 rounded-xl border border-border bg-card p-3 text-left transition-all hover:shadow-soft"
+                          >
+                            <div className="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-accent text-primary">
+                              <CalendarClock className="h-4 w-4" />
+                            </div>
+                            <div className="min-w-0 flex-1">
+                              <p className="truncate text-sm font-semibold">{m.name}</p>
+                              <p className="mt-0.5 text-[11px] text-muted-foreground">
+                                {m.schedule}
+                                {m.duration ? ` · ${m.duration}` : ""}
+                              </p>
+                            </div>
+                            <CreatorBadge name={m.creatorName} />
+                          </button>
+                        </HoverMeta>
+                      ))}
+                    </div>
+                  </div>
                 )}
               </div>
-            )}
+
+              {!adding && !editingId && (canEditNotes || canEditBoards || canEditMeetings) && (
+                <div className="space-y-2 border-t border-border bg-secondary/40 px-6 py-4">
+                  {canEditNotes && (
+                    <Button
+                      onClick={startAdd}
+                      className="h-11 w-full bg-primary text-primary-foreground hover:bg-primary-dark"
+                    >
+                      <Plus className="h-4 w-4" /> Add Note
+                    </Button>
+                  )}
+                  {canEditBoards && (
+                    <Button variant="outline" onClick={goToBoard} className="h-11 w-full">
+                      <LayoutGrid className="h-4 w-4" /> Add Board
+                    </Button>
+                  )}
+                  {canEditMeetings && (
+                    <Button variant="outline" onClick={addMeeting} className="h-11 w-full">
+                      <CalendarClock className="h-4 w-4" /> Add Meeting
+                    </Button>
+                  )}
+                </div>
+              )}
+            </TooltipProvider>
           </motion.aside>
         </>
       )}
     </AnimatePresence>
+  );
+}
+
+/** Wraps a card so hovering it reveals when it was created (date + time). The
+ *  tooltip is portaled and opens to the left of the right-side drawer, so it
+ *  stays fully visible and never overlaps the cards. */
+function HoverMeta({ createdAt, children }: { createdAt: string; children: ReactNode }) {
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>{children}</TooltipTrigger>
+      <TooltipContent side="left" sideOffset={8} className="text-[11.5px] leading-relaxed">
+        <span className="font-semibold">Created </span>
+        {format(new Date(createdAt), "d MMM yyyy 'at' h:mm a")}
+      </TooltipContent>
+    </Tooltip>
   );
 }
 

@@ -1,3 +1,8 @@
+import hashlib
+import logging
+import secrets
+from datetime import datetime, timedelta, timezone
+
 from fastapi import APIRouter, Depends, Header, HTTPException, status
 from google.auth.exceptions import GoogleAuthError
 from google.auth.transport import requests as google_requests
@@ -7,19 +12,29 @@ from sqlalchemy.orm import Session
 from ..config import settings
 from ..database import get_db
 from ..deps import get_current_user, resolve_active_org
-from ..models import TeamMember, User
+from ..email import reset_password_email, send_email
+from ..models import PasswordResetToken, TeamMember, User
 from ..schemas import (
     AccessOut,
     AuthResponse,
+    ForgotPasswordRequest,
     GoogleLoginRequest,
     LoginRequest,
+    MessageResponse,
+    ResetPasswordRequest,
     SignupRequest,
     UpdateProfileRequest,
     UserOut,
 )
 from ..security import create_access_token, hash_password, verify_password
 
+logger = logging.getLogger("uvicorn.error")
+
 router = APIRouter(prefix="/api/auth", tags=["auth"])
+
+
+def _hash_token(raw: str) -> str:
+    return hashlib.sha256(raw.encode()).hexdigest()
 
 
 def _auth_response(user: User) -> AuthResponse:
@@ -149,3 +164,53 @@ def update_profile(
     db.commit()
     db.refresh(user)
     return UserOut.model_validate(user)
+
+
+@router.post("/forgot-password", response_model=MessageResponse)
+def forgot_password(body: ForgotPasswordRequest, db: Session = Depends(get_db)) -> MessageResponse:
+    """Request a password reset. Always returns the same message (so it never
+    reveals whether an email is registered). If the account exists, a one-time
+    reset link is emailed (or logged when SMTP isn't configured)."""
+    user = db.query(User).filter(User.email == body.email).first()
+    if user and user.hashed_password is not None:
+        raw = secrets.token_urlsafe(32)
+        token = PasswordResetToken(
+            user_id=user.id,
+            token_hash=_hash_token(raw),
+            expires_at=datetime.now(timezone.utc)
+            + timedelta(minutes=settings.reset_token_expire_minutes),
+        )
+        db.add(token)
+        db.commit()
+        link = f"{settings.app_base_url.rstrip('/')}/reset-password?token={raw}"
+        html, text = reset_password_email(user.name, link, settings.reset_token_expire_minutes)
+        sent = send_email(user.email, "Reset your Founder Calendar password", html, text)
+        if not sent:
+            # SMTP not configured / failed — log the link so the flow still works.
+            logger.info("Password reset link for %s: %s", user.email, link)
+    return MessageResponse(
+        detail="If an account exists for that email, a password reset link has been sent."
+    )
+
+
+@router.post("/reset-password", response_model=MessageResponse)
+def reset_password(body: ResetPasswordRequest, db: Session = Depends(get_db)) -> MessageResponse:
+    """Set a new password using a valid, unused, unexpired reset token."""
+    token = (
+        db.query(PasswordResetToken)
+        .filter(PasswordResetToken.token_hash == _hash_token(body.token))
+        .first()
+    )
+    if token is None or token.used or token.expires_at < datetime.now(timezone.utc):
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST, "This reset link is invalid or has expired."
+        )
+    user = db.get(User, token.user_id)
+    if user is None:
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST, "This reset link is invalid or has expired."
+        )
+    user.hashed_password = hash_password(body.password)
+    token.used = True
+    db.commit()
+    return MessageResponse(detail="Your password has been updated. You can now sign in.")
