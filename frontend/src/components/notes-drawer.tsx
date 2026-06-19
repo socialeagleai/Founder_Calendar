@@ -1,7 +1,7 @@
 import { AnimatePresence, motion } from "framer-motion";
 import { useNavigate } from "@tanstack/react-router";
 import { format } from "date-fns";
-import { CalendarClock, Pencil, Trash2, X, Plus, Check, LayoutGrid } from "lucide-react";
+import { CalendarClock, Pencil, Trash2, X, Plus, Check, LayoutGrid, UserRound } from "lucide-react";
 import { useState } from "react";
 import { useStore, usePageAccess, type Note } from "@/lib/store";
 import { Button } from "@/components/ui/button";
@@ -195,35 +195,38 @@ export function NotesDrawer({ date, onClose }: Props) {
                     className="group rounded-xl border border-border bg-card p-4 transition-all hover:shadow-soft"
                   >
                     <p className="whitespace-pre-wrap text-sm leading-relaxed">{n.content}</p>
-                    <div className="mt-3 flex items-center justify-between">
-                      <span className="text-[11px] text-muted-foreground">
+                    <div className="mt-3 flex items-center justify-between gap-2">
+                      <span className="shrink-0 text-[11px] text-muted-foreground">
                         {format(new Date(n.updatedAt), "h:mm a")}
                       </span>
-                      {canEditNotes && (
-                        <div className="flex gap-1 opacity-0 transition-opacity group-hover:opacity-100">
-                          <button
-                            onClick={() => startEdit(n)}
-                            className="rounded-md p-1.5 text-muted-foreground hover:bg-accent hover:text-foreground"
-                          >
-                            <Pencil className="h-3.5 w-3.5" />
-                          </button>
-                          <button
-                            onClick={async () => {
-                              try {
-                                await deleteNote(n.id);
-                                toast.success("Note deleted");
-                              } catch (err) {
-                                toast.error(
-                                  err instanceof Error ? err.message : "Could not delete note",
-                                );
-                              }
-                            }}
-                            className="rounded-md p-1.5 text-muted-foreground hover:bg-accent hover:text-primary"
-                          >
-                            <Trash2 className="h-3.5 w-3.5" />
-                          </button>
-                        </div>
-                      )}
+                      <div className="flex min-w-0 items-center gap-2">
+                        <CreatorBadge name={n.creatorName} />
+                        {canEditNotes && (
+                          <div className="flex shrink-0 gap-1 opacity-0 transition-opacity group-hover:opacity-100">
+                            <button
+                              onClick={() => startEdit(n)}
+                              className="rounded-md p-1.5 text-muted-foreground hover:bg-accent hover:text-foreground"
+                            >
+                              <Pencil className="h-3.5 w-3.5" />
+                            </button>
+                            <button
+                              onClick={async () => {
+                                try {
+                                  await deleteNote(n.id);
+                                  toast.success("Note deleted");
+                                } catch (err) {
+                                  toast.error(
+                                    err instanceof Error ? err.message : "Could not delete note",
+                                  );
+                                }
+                              }}
+                              className="rounded-md p-1.5 text-muted-foreground hover:bg-accent hover:text-primary"
+                            >
+                              <Trash2 className="h-3.5 w-3.5" />
+                            </button>
+                          </div>
+                        )}
+                      </div>
                     </div>
                   </div>
                 ),
@@ -255,6 +258,7 @@ export function NotesDrawer({ date, onClose }: Props) {
                             {b.openTaskCount > 0 ? ` · ${b.openTaskCount} open` : ""}
                           </p>
                         </div>
+                        <CreatorBadge name={b.creatorName} />
                       </button>
                     ))}
                   </div>
@@ -283,6 +287,7 @@ export function NotesDrawer({ date, onClose }: Props) {
                             {m.duration ? ` · ${m.duration}` : ""}
                           </p>
                         </div>
+                        <CreatorBadge name={m.creatorName} />
                       </button>
                     ))}
                   </div>
@@ -316,6 +321,20 @@ export function NotesDrawer({ date, onClose }: Props) {
         </>
       )}
     </AnimatePresence>
+  );
+}
+
+/** Small right-aligned chip showing who added a note / board / meeting. */
+function CreatorBadge({ name }: { name?: string | null }) {
+  if (!name) return null;
+  return (
+    <span
+      title={`Added by ${name}`}
+      className="inline-flex shrink-0 items-center gap-1 text-[11px] text-muted-foreground"
+    >
+      <UserRound className="h-3 w-3" />
+      <span className="max-w-[90px] truncate">{name}</span>
+    </span>
   );
 }
 

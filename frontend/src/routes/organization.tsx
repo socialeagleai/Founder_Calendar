@@ -5,8 +5,9 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import { cn } from "@/lib/utils";
 import { format, parseISO } from "date-fns";
-import { Building2, Calendar, Users, Trash2 } from "lucide-react";
+import { Building2, Calendar, Users, Trash2, Check, Plus } from "lucide-react";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import {
@@ -20,6 +21,15 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog";
 
 export const Route = createFileRoute("/organization")({
   head: () => ({ meta: [{ title: "Organization — Founder Calendar" }] }),
@@ -143,7 +153,9 @@ function OrgPage() {
                         try {
                           await deleteOrg();
                           toast.success("Organization deleted");
-                          navigate({ to: "/onboarding" });
+                          // Land on the dashboard; the app shell sends the user
+                          // to onboarding only if no organizations remain.
+                          navigate({ to: "/dashboard" });
                         } catch (err) {
                           toast.error(err instanceof Error ? err.message : "Delete failed");
                         }
@@ -160,6 +172,7 @@ function OrgPage() {
         </div>
 
         <div className="space-y-4">
+          <OrganizationsPanel />
           <MetaCard icon={Users} label="Members" value={team.length} />
           <MetaCard
             icon={Calendar}
@@ -177,6 +190,129 @@ function OrgPage() {
         </div>
       </div>
     </AppShell>
+  );
+}
+
+/** Lists every org the user belongs to, lets them switch, and create a new one. */
+function OrganizationsPanel() {
+  const myOrgs = useStore((s) => s.myOrgs);
+  const organization = useStore((s) => s.organization);
+  const switchOrg = useStore((s) => s.switchOrg);
+
+  const pick = async (id: string) => {
+    if (id === organization?.id) return;
+    try {
+      await switchOrg(id);
+      toast.success("Switched organization");
+    } catch {
+      toast.error("Could not switch organization");
+    }
+  };
+
+  return (
+    <div className="rounded-2xl border border-border bg-card p-5 shadow-soft">
+      <div className="mb-3 flex items-center justify-between">
+        <h4 className="text-xs font-bold uppercase tracking-widest text-muted-foreground">
+          Your Organizations
+        </h4>
+        <NewOrgDialog />
+      </div>
+      <div className="space-y-1.5">
+        {myOrgs.map((o) => {
+          const active = o.id === organization?.id;
+          return (
+            <button
+              key={o.id}
+              onClick={() => void pick(o.id)}
+              className={cn(
+                "flex w-full items-center gap-3 rounded-xl border p-2.5 text-left transition-colors",
+                active ? "border-primary/30 bg-accent" : "border-transparent hover:bg-accent/50",
+              )}
+            >
+              <span className="grid h-8 w-8 shrink-0 place-items-center rounded-lg bg-accent text-xs font-bold text-primary">
+                {o.name.charAt(0).toUpperCase()}
+              </span>
+              <div className="min-w-0 flex-1">
+                <div className="truncate text-sm font-semibold">{o.name}</div>
+                <div className="text-[11px] text-muted-foreground">
+                  {o.isOwner ? "Owner" : o.role}
+                </div>
+              </div>
+              {active && <Check className="h-4 w-4 shrink-0 text-primary" />}
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function NewOrgDialog() {
+  const createOrg = useStore((s) => s.createOrg);
+  const [open, setOpen] = useState(false);
+  const [name, setName] = useState("");
+  const [desc, setDesc] = useState("");
+
+  const submit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!name.trim()) return;
+    try {
+      await createOrg(name.trim(), desc.trim());
+      toast.success(`Created ${name.trim()}`);
+      setOpen(false);
+      setName("");
+      setDesc("");
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Could not create organization");
+    }
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={setOpen}>
+      <DialogTrigger asChild>
+        <Button size="sm" variant="outline" className="h-8 gap-1.5">
+          <Plus className="h-3.5 w-3.5" /> New
+        </Button>
+      </DialogTrigger>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Create organization</DialogTitle>
+          <DialogDescription>
+            You'll own this organization and switch to it right away.
+          </DialogDescription>
+        </DialogHeader>
+        <form onSubmit={submit} className="space-y-4">
+          <div className="space-y-2">
+            <Label htmlFor="neworgname">Name</Label>
+            <Input
+              id="neworgname"
+              autoFocus
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              placeholder="e.g. Acme Inc."
+            />
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="neworgdesc">Description</Label>
+            <Textarea
+              id="neworgdesc"
+              rows={3}
+              value={desc}
+              onChange={(e) => setDesc(e.target.value)}
+              placeholder="Optional"
+            />
+          </div>
+          <DialogFooter>
+            <Button
+              type="submit"
+              className="bg-primary text-primary-foreground hover:bg-primary-dark"
+            >
+              Create
+            </Button>
+          </DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
   );
 }
 

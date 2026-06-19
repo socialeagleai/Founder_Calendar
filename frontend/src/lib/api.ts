@@ -17,11 +17,13 @@ import type {
   BoardDetail,
   BoardSummary,
   Box,
+  Invitation,
   MeetingDetail,
   MeetingInput,
   MeetingSummary,
   Note,
   Organization,
+  OrgMembership,
   Permissions,
   Role,
   TeamMember,
@@ -32,6 +34,7 @@ import type {
 
 const BASE_URL = import.meta.env.VITE_API_URL ?? "http://127.0.0.1:8000";
 const TOKEN_KEY = "founder-calendar-token";
+const ACTIVE_ORG_KEY = "founder-calendar-active-org";
 
 export interface ApiUser {
   id: string;
@@ -55,6 +58,18 @@ export function setToken(token: string | null) {
   else localStorage.removeItem(TOKEN_KEY);
 }
 
+/** The organization the app is currently scoped to (sent as X-Org-Id). */
+export function getActiveOrgId(): string | null {
+  if (typeof localStorage === "undefined") return null;
+  return localStorage.getItem(ACTIVE_ORG_KEY);
+}
+
+export function setActiveOrgId(id: string | null) {
+  if (typeof localStorage === "undefined") return;
+  if (id) localStorage.setItem(ACTIVE_ORG_KEY, id);
+  else localStorage.removeItem(ACTIVE_ORG_KEY);
+}
+
 export class ApiError extends Error {
   status: number;
   constructor(status: number, message: string) {
@@ -74,6 +89,9 @@ async function request<T>(
   if (auth) {
     const token = getToken();
     if (token) headers["Authorization"] = `Bearer ${token}`;
+    // Scope the request to the active organization, if one is selected.
+    const orgId = getActiveOrgId();
+    if (orgId) headers["X-Org-Id"] = orgId;
   }
 
   const res = await fetch(`${BASE_URL}${path}`, {
@@ -126,6 +144,9 @@ export const api = {
   // ---- organization ----
   getOrganization: () => request<Organization | null>("/api/organization"),
 
+  // Every org the user belongs to (owned + accepted memberships) — for the switcher.
+  getOrganizations: () => request<OrgMembership[]>("/api/organizations"),
+
   createOrg: (name: string, description: string) =>
     request<Organization>("/api/organization", { method: "POST", body: { name, description } }),
 
@@ -147,6 +168,15 @@ export const api = {
     request<TeamMember>(`/api/team/${id}`, { method: "PATCH", body: patch }),
 
   removeMember: (id: string) => request<void>(`/api/team/${id}`, { method: "DELETE" }),
+
+  // ---- invitations ----
+  getInvitations: () => request<Invitation[]>("/api/invitations"),
+
+  acceptInvitation: (id: string) =>
+    request<Invitation>(`/api/invitations/${id}/accept`, { method: "POST" }),
+
+  declineInvitation: (id: string) =>
+    request<void>(`/api/invitations/${id}/decline`, { method: "POST" }),
 
   // ---- notes ----
   getNotes: () => request<Note[]>("/api/notes"),

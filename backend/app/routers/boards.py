@@ -59,6 +59,7 @@ def _summary(board: Board) -> BoardSummaryOut:
         id=board.id,
         date=board.date,
         title=board.title,
+        creator_name=board.creator_name,
         created_at=board.created_at,
         updated_at=board.updated_at,
         box_count=len(board.boxes),

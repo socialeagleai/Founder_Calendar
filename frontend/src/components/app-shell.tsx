@@ -15,13 +15,25 @@ import {
   Bell,
   Menu,
   X,
+  Check,
+  ChevronsUpDown,
+  Plus,
 } from "lucide-react";
-import { useStore, useCurrentUser, levelFor } from "@/lib/store";
+import { toast } from "sonner";
+import { useStore, useCurrentUser, levelFor, type Invitation } from "@/lib/store";
 import { pageKeyForPath } from "@/lib/pages";
 import { Logo } from "./logo";
 import { ThemeToggle } from "./theme-toggle";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { cn } from "@/lib/utils";
 
 const nav = [
@@ -177,12 +189,7 @@ export function AppShell({ children }: { children: ReactNode }) {
           >
             <Menu className="h-5 w-5" />
           </Button>
-          <div className="hidden min-w-0 items-center gap-2 lg:flex">
-            <span className="grid h-7 w-7 shrink-0 place-items-center rounded-lg bg-accent text-primary">
-              <Building2 className="h-3.5 w-3.5" />
-            </span>
-            <span className="truncate text-sm font-semibold">{organization.name}</span>
-          </div>
+          <OrgSwitcher />
           <div className="relative ml-auto hidden max-w-md flex-1 md:block">
             <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
             <Input
@@ -192,10 +199,7 @@ export function AppShell({ children }: { children: ReactNode }) {
           </div>
           <div className="ml-auto flex items-center gap-1.5 md:ml-0">
             <ThemeToggle />
-            <Button variant="ghost" size="icon" className="relative">
-              <Bell className="h-4 w-4" />
-              <span className="absolute right-2 top-2 h-1.5 w-1.5 rounded-full bg-primary" />
-            </Button>
+            <NotificationBell />
           </div>
         </header>
 
@@ -211,5 +215,134 @@ export function AppShell({ children }: { children: ReactNode }) {
         </main>
       </div>
     </div>
+  );
+}
+
+/** Navbar dropdown to switch between the organizations the user belongs to. */
+function OrgSwitcher() {
+  const navigate = useNavigate();
+  const organization = useStore((s) => s.organization);
+  const myOrgs = useStore((s) => s.myOrgs);
+  const switchOrg = useStore((s) => s.switchOrg);
+  if (!organization) return null;
+
+  const pick = async (id: string) => {
+    if (id === organization.id) return;
+    try {
+      await switchOrg(id);
+    } catch {
+      toast.error("Could not switch organization");
+    }
+  };
+
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <button className="hidden min-w-0 items-center gap-2 rounded-lg px-2 py-1.5 transition-colors hover:bg-accent lg:flex">
+          <span className="grid h-7 w-7 shrink-0 place-items-center rounded-lg bg-accent text-primary">
+            <Building2 className="h-3.5 w-3.5" />
+          </span>
+          <span className="max-w-[180px] truncate text-sm font-semibold">{organization.name}</span>
+          <ChevronsUpDown className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+        </button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="start" className="w-64">
+        <DropdownMenuLabel>Your organizations</DropdownMenuLabel>
+        <DropdownMenuSeparator />
+        {myOrgs.map((o) => (
+          <DropdownMenuItem key={o.id} onSelect={() => void pick(o.id)} className="gap-2">
+            <span className="grid h-7 w-7 shrink-0 place-items-center rounded-md bg-accent text-xs font-bold text-primary">
+              {o.name.charAt(0).toUpperCase()}
+            </span>
+            <div className="min-w-0 flex-1">
+              <div className="truncate text-sm font-medium">{o.name}</div>
+              <div className="text-[11px] text-muted-foreground">
+                {o.isOwner ? "Owner" : o.role}
+              </div>
+            </div>
+            {o.id === organization.id && <Check className="h-4 w-4 shrink-0 text-primary" />}
+          </DropdownMenuItem>
+        ))}
+        <DropdownMenuSeparator />
+        <DropdownMenuItem onSelect={() => navigate({ to: "/organization" })} className="gap-2">
+          <Plus className="h-4 w-4" /> Create / manage
+        </DropdownMenuItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+}
+
+/** Notification bell listing pending invitations with accept / decline. */
+function NotificationBell() {
+  const invitations = useStore((s) => s.invitations);
+  const acceptInvitation = useStore((s) => s.acceptInvitation);
+  const declineInvitation = useStore((s) => s.declineInvitation);
+  const count = invitations.length;
+
+  const accept = async (inv: Invitation) => {
+    try {
+      await acceptInvitation(inv.id);
+      toast.success(`Joined ${inv.organizationName}`);
+    } catch {
+      toast.error("Could not accept invitation");
+    }
+  };
+  const decline = async (inv: Invitation) => {
+    try {
+      await declineInvitation(inv.id);
+      toast.message(`Declined ${inv.organizationName}`);
+    } catch {
+      toast.error("Could not decline invitation");
+    }
+  };
+
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <Button variant="ghost" size="icon" className="relative">
+          <Bell className="h-4 w-4" />
+          {count > 0 && (
+            <span className="absolute right-1 top-1 grid h-4 min-w-[16px] place-items-center rounded-full bg-primary px-1 text-[10px] font-bold leading-none text-primary-foreground">
+              {count}
+            </span>
+          )}
+        </Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end" className="w-80">
+        <DropdownMenuLabel>Invitations</DropdownMenuLabel>
+        <DropdownMenuSeparator />
+        {count === 0 ? (
+          <div className="px-3 py-8 text-center text-sm text-muted-foreground">
+            No new invitations
+          </div>
+        ) : (
+          invitations.map((inv) => (
+            <div key={inv.id} className="px-3 py-2.5">
+              <p className="text-sm leading-snug">
+                You're invited to join <span className="font-semibold">{inv.organizationName}</span>
+              </p>
+              <p className="mt-0.5 text-[11px] text-muted-foreground">Role: {inv.role}</p>
+              <div className="mt-2 flex gap-2">
+                <Button
+                  size="sm"
+                  className="h-8 flex-1 bg-primary text-primary-foreground hover:bg-primary-dark"
+                  onClick={() => void accept(inv)}
+                >
+                  Accept
+                </Button>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="h-8 flex-1"
+                  onClick={() => void decline(inv)}
+                >
+                  Decline
+                </Button>
+              </div>
+            </div>
+          ))
+        )}
+      </DropdownMenuContent>
+    </DropdownMenu>
   );
 }

@@ -72,6 +72,29 @@ class OrganizationOut(CamelModel):
     owner_id: str
 
 
+class OrgMembershipOut(CamelModel):
+    """An organization the user belongs to, with their role in it — powers the
+    navbar org switcher."""
+
+    id: str
+    name: str
+    description: str
+    created_at: datetime
+    owner_id: str
+    role: Role
+    is_owner: bool
+
+
+class InvitationOut(CamelModel):
+    """A pending invitation for the current user (shown in the notification bell)."""
+
+    id: str
+    organization_id: str
+    organization_name: str
+    role: Role
+    created_at: datetime
+
+
 # ---------- Team ----------
 PageAccess = Literal["view", "edit"]
 # Per-page access map: { "<page-key>": "view" | "edit" }.
@@ -121,6 +144,7 @@ class NoteOut(CamelModel):
     id: str
     date: str
     content: str
+    creator_name: str | None = None
     created_at: datetime
     updated_at: datetime
 
@@ -179,6 +203,7 @@ class BoardSummaryOut(CamelModel):
     id: str
     date: str
     title: str
+    creator_name: str | None = None
     created_at: datetime
     updated_at: datetime
     box_count: int
@@ -244,6 +269,7 @@ class MeetingSummaryOut(CamelModel):
     date: str
     schedule: Schedule
     duration: str
+    creator_name: str | None = None
     section_count: int
     sections: list[MeetingSectionModel]
     created_at: datetime

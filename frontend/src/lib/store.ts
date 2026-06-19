@@ -1,6 +1,14 @@
 import { create } from "zustand";
 
-import { api, ApiError, getToken, setToken, type ApiUser } from "./api";
+import {
+  api,
+  ApiError,
+  getActiveOrgId,
+  getToken,
+  setActiveOrgId,
+  setToken,
+  type ApiUser,
+} from "./api";
 
 export type Role = "Owner" | "Admin" | "Member";
 
@@ -23,6 +31,26 @@ export interface Organization {
   ownerId: string;
 }
 
+/** An org the user belongs to, with their role in it — powers the switcher. */
+export interface OrgMembership {
+  id: string;
+  name: string;
+  description: string;
+  createdAt: string;
+  ownerId: string;
+  role: Role;
+  isOwner: boolean;
+}
+
+/** A pending invitation shown in the notification bell. */
+export interface Invitation {
+  id: string;
+  organizationId: string;
+  organizationName: string;
+  role: Role;
+  createdAt: string;
+}
+
 export interface TeamMember {
   id: string;
   name: string;
@@ -36,6 +64,7 @@ export interface Note {
   id: string;
   date: string; // YYYY-MM-DD
   content: string;
+  creatorName?: string | null; // who added it (shown on the calendar)
   createdAt: string;
   updatedAt: string;
 }
@@ -62,6 +91,7 @@ export interface BoardSummary {
   id: string;
   date: string; // YYYY-MM-DD
   title: string;
+  creatorName?: string | null; // who created it (shown on the calendar)
   createdAt: string;
   updatedAt: string;
   boxCount: number;
@@ -100,6 +130,7 @@ export interface MeetingSummary {
   date: string; // YYYY-MM-DD
   schedule: Schedule;
   duration: string;
+  creatorName?: string | null; // who created it (shown on the calendar)
   sectionCount: number;
   sections: MeetingSection[];
   createdAt: string;
@@ -166,6 +197,9 @@ interface AppState {
   token: string | null;
   currentUser: ApiUser | null;
   organization: Organization | null;
+  // All orgs the user belongs to (switcher) and pending invites (bell).
+  myOrgs: OrgMembership[];
+  invitations: Invitation[];
   access: Access | null;
   team: TeamMember[];
   notes: Note[];
@@ -212,6 +246,12 @@ interface AppState {
   createOrg: (name: string, description: string) => Promise<void>;
   updateOrg: (name: string, description: string) => Promise<void>;
   deleteOrg: () => Promise<void>;
+  switchOrg: (id: string) => Promise<void>;
+
+  // Invitations
+  refreshInvitations: () => Promise<void>;
+  acceptInvitation: (id: string) => Promise<void>;
+  declineInvitation: (id: string) => Promise<void>;
 
   // Team
   inviteMember: (
@@ -238,6 +278,8 @@ export const useStore = create<AppState>((set, get) => ({
   token: null,
   currentUser: null,
   organization: null,
+  myOrgs: [],
+  invitations: [],
   access: null,
   team: [],
   notes: [],
@@ -262,10 +304,13 @@ export const useStore = create<AppState>((set, get) => ({
     } catch {
       // Token invalid/expired — clear the session.
       setToken(null);
+      setActiveOrgId(null);
       set({
         token: null,
         currentUser: null,
         organization: null,
+        myOrgs: [],
+        invitations: [],
         access: null,
         team: [],
         notes: [],
@@ -281,16 +326,27 @@ export const useStore = create<AppState>((set, get) => ({
   },
 
   refreshOrgData: async () => {
-    const [org, access] = await Promise.all([
-      api.getOrganization(),
-      // Never let an access-fetch failure (e.g. old backend) break login —
-      // default to full owner access.
-      api.getAccess().catch((): Access => ({ isOwner: true, role: "Owner", permissions: {} })),
+    // 1. Which orgs do I belong to, and do I have pending invites?
+    let [myOrgs, invitations] = await Promise.all([
+      api.getOrganizations().catch((): OrgMembership[] => []),
+      api.getInvitations().catch((): Invitation[] => []),
     ]);
-    set({ access });
-    if (!org) {
+    // Brand-new user with no org of their own but an invite waiting → auto-join
+    // the first one (so they skip onboarding and land in a workspace).
+    if (myOrgs.length === 0 && invitations.length > 0) {
+      await api.acceptInvitation(invitations[0].id).catch(() => {});
+      [myOrgs, invitations] = await Promise.all([
+        api.getOrganizations().catch((): OrgMembership[] => []),
+        api.getInvitations().catch((): Invitation[] => []),
+      ]);
+    }
+    set({ myOrgs, invitations });
+
+    if (myOrgs.length === 0) {
+      setActiveOrgId(null);
       set({
         organization: null,
+        access: null,
         team: [],
         notes: [],
         boards: [],
@@ -301,20 +357,36 @@ export const useStore = create<AppState>((set, get) => ({
       });
       return;
     }
-    const [team, notes, boards, meetings, templates, calendarBoards, calendarMeetings] =
-      await Promise.all([
-        api.getTeam(),
-        api.getNotes(),
-        api.getBoards(), // my boards (list page)
-        api.getMeetings(), // my meetings (list page)
-        // Templates are a non-critical enhancement — never let a missing/old
-        // backend route (404) reject the whole load and clear the session.
-        api.getTemplates().catch(() => []),
-        // Org-wide feed for the shared calendar (tolerate old backends).
-        api.getBoards("org").catch(() => []),
-        api.getMeetings("org").catch(() => []),
-      ]);
+
+    // 2. Pin the active org to one we actually belong to.
+    const current = getActiveOrgId();
+    const activeId = current && myOrgs.some((o) => o.id === current) ? current : myOrgs[0].id;
+    setActiveOrgId(activeId);
+
+    // 3. Load access + data for the active org (X-Org-Id now set).
+    const [
+      access,
+      org,
+      team,
+      notes,
+      boards,
+      meetings,
+      templates,
+      calendarBoards,
+      calendarMeetings,
+    ] = await Promise.all([
+      api.getAccess().catch((): Access => ({ isOwner: true, role: "Owner", permissions: {} })),
+      api.getOrganization(),
+      api.getTeam(),
+      api.getNotes(),
+      api.getBoards(), // my boards (list page)
+      api.getMeetings(), // my meetings (list page)
+      api.getTemplates().catch(() => []),
+      api.getBoards("org").catch(() => []),
+      api.getMeetings("org").catch(() => []),
+    ]);
     set({
+      access,
       organization: org,
       team,
       notes,
@@ -324,6 +396,10 @@ export const useStore = create<AppState>((set, get) => ({
       calendarBoards,
       calendarMeetings,
     });
+  },
+
+  refreshInvitations: async () => {
+    set({ invitations: await api.getInvitations().catch((): Invitation[] => []) });
   },
 
   refreshBoards: async () => {
@@ -423,18 +499,11 @@ export const useStore = create<AppState>((set, get) => ({
     try {
       const { token, user } = await api.signup(name, email, password);
       setToken(token);
-      set({
-        token,
-        currentUser: user,
-        organization: null,
-        access: null,
-        team: [],
-        notes: [],
-        boards: [],
-        meetings: [],
-        templates: [],
-        status: "ready",
-      });
+      setActiveOrgId(null);
+      set({ token, currentUser: user });
+      // Resolves any pending invite (auto-join) or leaves them at onboarding.
+      await get().refreshOrgData();
+      set({ status: "ready" });
       return { ok: true };
     } catch (e) {
       return { ok: false, error: errMsg(e, "Signup failed") };
@@ -470,10 +539,13 @@ export const useStore = create<AppState>((set, get) => ({
   logout: () => {
     void api.logout().catch(() => {});
     setToken(null);
+    setActiveOrgId(null);
     set({
       token: null,
       currentUser: null,
       organization: null,
+      myOrgs: [],
+      invitations: [],
       access: null,
       team: [],
       notes: [],
@@ -488,18 +560,42 @@ export const useStore = create<AppState>((set, get) => ({
 
   createOrg: async (name, description) => {
     const org = await api.createOrg(name, description);
-    const team = await api.getTeam();
-    set({ organization: org, team, notes: [] });
+    // A user can own several orgs; make the new one active and reload.
+    setActiveOrgId(org.id);
+    await get().refreshOrgData();
   },
 
   updateOrg: async (name, description) => {
     const org = await api.updateOrg(name, description);
-    set({ organization: org });
+    set((s) => ({
+      organization: org,
+      myOrgs: s.myOrgs.map((o) =>
+        o.id === org.id ? { ...o, name: org.name, description: org.description } : o,
+      ),
+    }));
   },
 
   deleteOrg: async () => {
     await api.deleteOrg();
-    set({ organization: null, team: [], notes: [] });
+    // Drop it from the active selection and reload whatever remains.
+    setActiveOrgId(null);
+    await get().refreshOrgData();
+  },
+
+  switchOrg: async (id) => {
+    setActiveOrgId(id);
+    await get().refreshOrgData();
+  },
+
+  acceptInvitation: async (id) => {
+    await api.acceptInvitation(id);
+    // Joining adds an org to the switcher and clears the invite.
+    await get().refreshOrgData();
+  },
+
+  declineInvitation: async (id) => {
+    await api.declineInvitation(id);
+    set((s) => ({ invitations: s.invitations.filter((i) => i.id !== id) }));
   },
 
   inviteMember: async (name, email, role, permissions) => {

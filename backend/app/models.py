@@ -26,8 +26,9 @@ class User(Base):
     provider: Mapped[str] = mapped_column(String(32), default="local", nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
 
-    organization: Mapped["Organization | None"] = relationship(
-        back_populates="owner", uselist=False, cascade="all, delete-orphan"
+    # A user can own multiple organizations.
+    organizations: Mapped[list["Organization"]] = relationship(
+        back_populates="owner", cascade="all, delete-orphan"
     )
 
 
@@ -38,11 +39,12 @@ class Organization(Base):
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     description: Mapped[str] = mapped_column(Text, default="", nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
+    # Not unique — a user can own several organizations.
     owner_id: Mapped[str] = mapped_column(
-        ForeignKey("users.id", ondelete="CASCADE"), unique=True, nullable=False
+        ForeignKey("users.id", ondelete="CASCADE"), index=True, nullable=False
     )
 
-    owner: Mapped[User] = relationship(back_populates="organization")
+    owner: Mapped[User] = relationship(back_populates="organizations")
     team: Mapped[list["TeamMember"]] = relationship(
         back_populates="organization", cascade="all, delete-orphan"
     )
@@ -90,6 +92,11 @@ class Note(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now, onupdate=_now)
 
     organization: Mapped[Organization] = relationship(back_populates="notes")
+    creator: Mapped["User | None"] = relationship("User", lazy="selectin")
+
+    @property
+    def creator_name(self) -> str | None:
+        return self.creator.name if self.creator else None
 
 
 class Board(Base):
@@ -117,6 +124,11 @@ class Board(Base):
     boxes: Mapped[list["BoardBox"]] = relationship(
         back_populates="board", cascade="all, delete-orphan"
     )
+    creator: Mapped["User | None"] = relationship("User", lazy="selectin")
+
+    @property
+    def creator_name(self) -> str | None:
+        return self.creator.name if self.creator else None
 
 
 class BoardBox(Base):
@@ -195,3 +207,9 @@ class Meeting(Base):
     sections: Mapped[list] = mapped_column(JSON, default=list, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now, onupdate=_now)
+
+    creator: Mapped["User | None"] = relationship("User", lazy="selectin")
+
+    @property
+    def creator_name(self) -> str | None:
+        return self.creator.name if self.creator else None

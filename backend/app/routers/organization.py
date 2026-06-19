@@ -3,14 +3,21 @@ from sqlalchemy.orm import Session
 
 from ..database import get_db
 from ..deps import (
-    find_org_for_user,
     get_current_org,
     get_current_user,
+    orgs_for_user,
     require_owner,
     require_page_edit,
+    resolve_active_org,
 )
 from ..models import Organization, TeamMember, User
-from ..schemas import OrganizationOut, OrgCreateRequest, OrgUpdateRequest
+from ..schemas import (
+    OrganizationOut,
+    OrgCreateRequest,
+    OrgMembershipOut,
+    OrgUpdateRequest,
+)
+from fastapi import Header
 
 router = APIRouter(prefix="/api/organization", tags=["organization"])
 
@@ -21,10 +28,47 @@ require_org_edit = require_page_edit("organization")
 def get_organization(
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
+    x_org_id: str | None = Header(default=None, alias="X-Org-Id"),
 ) -> Organization | None:
-    # Returns null (not 404) when none exists, so the frontend can route to
-    # onboarding. Invited members resolve to the org they were invited to.
-    return find_org_for_user(db, user)
+    # Returns null (not 404) when the user belongs to none, so the frontend can
+    # route to onboarding. Otherwise returns the active org (per X-Org-Id).
+    return resolve_active_org(db, user, x_org_id)
+
+
+@router.get("s", response_model=list[OrgMembershipOut])
+def list_my_organizations(
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> list[OrgMembershipOut]:
+    """Every org the user belongs to (owned + accepted memberships) — powers the
+    navbar org switcher. Served at /api/organizations."""
+    out: list[OrgMembershipOut] = []
+    for org in orgs_for_user(db, user):
+        is_owner = org.owner_id == user.id
+        if is_owner:
+            role = "Owner"
+        else:
+            member = (
+                db.query(TeamMember)
+                .filter(
+                    TeamMember.organization_id == org.id,
+                    TeamMember.email == user.email,
+                )
+                .first()
+            )
+            role = member.role if member else "Member"
+        out.append(
+            OrgMembershipOut(
+                id=org.id,
+                name=org.name,
+                description=org.description,
+                created_at=org.created_at,
+                owner_id=org.owner_id,
+                role=role,
+                is_owner=is_owner,
+            )
+        )
+    return out
 
 
 @router.post("", response_model=OrganizationOut, status_code=status.HTTP_201_CREATED)
@@ -33,9 +77,7 @@ def create_organization(
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> Organization:
-    existing = db.query(Organization).filter(Organization.owner_id == user.id).first()
-    if existing:
-        raise HTTPException(status.HTTP_409_CONFLICT, "Organization already exists")
+    # A user may own multiple organizations — no one-org limit.
     org = Organization(name=body.name, description=body.description, owner_id=user.id)
     db.add(org)
     db.flush()  # assign org.id before creating the owner member

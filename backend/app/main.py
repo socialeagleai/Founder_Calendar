@@ -6,7 +6,16 @@ from sqlalchemy import inspect, text
 
 from .config import settings
 from .database import Base, engine
-from .routers import auth, boards, meetings, notes, organization, team, templates
+from .routers import (
+    auth,
+    boards,
+    invitations,
+    meetings,
+    notes,
+    organization,
+    team,
+    templates,
+)
 
 
 def _run_lightweight_migrations() -> None:
@@ -35,6 +44,23 @@ def _run_lightweight_migrations() -> None:
                 conn.execute(
                     text("ALTER TABLE board_boxes ADD COLUMN tasks JSON NOT NULL DEFAULT '[]'")
                 )
+
+    # Allow a user to own multiple organizations: drop the old UNIQUE on
+    # organizations.owner_id and replace it with a plain index. Idempotent.
+    if "organizations" in inspector.get_table_names():
+        with engine.begin() as conn:
+            conn.execute(
+                text(
+                    "ALTER TABLE organizations "
+                    "DROP CONSTRAINT IF EXISTS organizations_owner_id_key"
+                )
+            )
+            conn.execute(
+                text(
+                    "CREATE INDEX IF NOT EXISTS ix_organizations_owner_id "
+                    "ON organizations (owner_id)"
+                )
+            )
 
     # Per-user ownership of boards/meetings/templates/notes. Backfill existing
     # rows to the organization owner so pre-existing data keeps a creator.
@@ -81,6 +107,7 @@ app.add_middleware(
 app.include_router(auth.router)
 app.include_router(organization.router)
 app.include_router(team.router)
+app.include_router(invitations.router)
 app.include_router(notes.router)
 app.include_router(boards.router)
 app.include_router(meetings.router)

@@ -36,6 +36,7 @@ def _summary(m: Meeting) -> MeetingSummaryOut:
         date=m.date,
         schedule=m.schedule,
         duration=m.duration,
+        creator_name=m.creator_name,
         section_count=len(m.sections or []),
         sections=m.sections or [],
         created_at=m.created_at,

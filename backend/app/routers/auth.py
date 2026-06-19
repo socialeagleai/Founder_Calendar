@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, Header, HTTPException, status
 from google.auth.exceptions import GoogleAuthError
 from google.auth.transport import requests as google_requests
 from google.oauth2 import id_token as google_id_token
@@ -6,7 +6,7 @@ from sqlalchemy.orm import Session
 
 from ..config import settings
 from ..database import get_db
-from ..deps import find_org_for_user, get_current_user
+from ..deps import get_current_user, resolve_active_org
 from ..models import TeamMember, User
 from ..schemas import (
     AccessOut,
@@ -105,13 +105,13 @@ def me(user: User = Depends(get_current_user)) -> UserOut:
 def access(
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
+    x_org_id: str | None = Header(default=None, alias="X-Org-Id"),
 ) -> AccessOut:
-    """The current user's effective access in their active organization.
-
-    Owners (and users with no org yet) get full access; invited members get the
-    per-page permissions they were granted. Logging in also marks the member Active.
+    """The current user's effective access in the *active* organization (chosen
+    by the X-Org-Id header). Owners (and users with no org yet) get full access;
+    members get the per-page permissions they were granted in that org.
     """
-    org = find_org_for_user(db, user)
+    org = resolve_active_org(db, user, x_org_id)
     if org is None or org.owner_id == user.id:
         return AccessOut(is_owner=True, role="Owner", permissions={})
 
@@ -122,10 +122,6 @@ def access(
     )
     if member is None:
         return AccessOut(is_owner=True, role="Owner", permissions={})
-    if member.status != "Active":
-        member.status = "Active"
-        db.commit()
-        db.refresh(member)
     return AccessOut(is_owner=False, role=member.role, permissions=member.permissions or {})
 
 
