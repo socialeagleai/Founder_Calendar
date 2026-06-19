@@ -14,7 +14,9 @@ export const Route = createFileRoute("/calendar")({
 function CalendarPage() {
   const [month, setMonth] = useState(new Date());
   const [selected, setSelected] = useState<Date | null>(null);
-  const { notes, boards, meetings } = useStore();
+  // The calendar is the shared surface: show every org member's notes, boards
+  // and meetings (calendarBoards/calendarMeetings), not just the current user's.
+  const { notes, calendarBoards, calendarMeetings } = useStore();
 
   const noteCounts = useMemo(() => {
     const m: Record<string, number> = {};
@@ -24,15 +26,15 @@ function CalendarPage() {
 
   const boardCounts = useMemo(() => {
     const m: Record<string, number> = {};
-    for (const b of boards) m[b.date] = (m[b.date] ?? 0) + 1;
+    for (const b of calendarBoards) m[b.date] = (m[b.date] ?? 0) + 1;
     return m;
-  }, [boards]);
+  }, [calendarBoards]);
 
   const meetingCounts = useMemo(() => {
     const m: Record<string, number> = {};
-    for (const mt of meetings) if (mt.date) m[mt.date] = (m[mt.date] ?? 0) + 1;
+    for (const mt of calendarMeetings) if (mt.date) m[mt.date] = (m[mt.date] ?? 0) + 1;
     return m;
-  }, [meetings]);
+  }, [calendarMeetings]);
 
   return (
     <AppShell>

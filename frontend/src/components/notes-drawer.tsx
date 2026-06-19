@@ -15,15 +15,30 @@ interface Props {
 
 export function NotesDrawer({ date, onClose }: Props) {
   const navigate = useNavigate();
-  const { notes, boards, meetings, saveNote, deleteNote, createBoard, createMeeting } = useStore();
+  // `boards` = the current user's own boards (used to find-or-create their board
+  // for a date). `calendarBoards`/`calendarMeetings` = the whole org's, shown on
+  // the shared calendar so everyone's plans are visible here.
+  const {
+    notes,
+    boards,
+    calendarBoards,
+    calendarMeetings,
+    saveNote,
+    deleteNote,
+    createBoard,
+    createMeeting,
+  } = useStore();
   const canEditNotes = usePageAccess("calendar") === "edit";
-  const canEditBoards = usePageAccess("board") === "edit";
+  const boardAccess = usePageAccess("board");
+  const canViewBoards = boardAccess !== "none";
+  const canEditBoards = boardAccess === "edit";
   const meetingAccess = usePageAccess("meeting");
   const canViewMeetings = meetingAccess !== "none";
   const canEditMeetings = meetingAccess === "edit";
   const dateKey = date ? format(date, "yyyy-MM-dd") : "";
   const dayNotes = notes.filter((n) => n.date === dateKey);
-  const dayMeetings = canViewMeetings ? meetings.filter((m) => m.date === dateKey) : [];
+  const dayMeetings = canViewMeetings ? calendarMeetings.filter((m) => m.date === dateKey) : [];
+  const dayBoards = canViewBoards ? calendarBoards.filter((b) => b.date === dateKey) : [];
 
   const [editingId, setEditingId] = useState<string | null>(null);
   const [draft, setDraft] = useState("");
@@ -47,6 +62,12 @@ export function NotesDrawer({ date, onClose }: Props) {
   const openMeeting = (id: string) => {
     onClose();
     navigate({ to: "/meeting", search: { meeting: id } });
+  };
+
+  // Open any org member's board (read-only by default) from the calendar.
+  const openBoard = (id: string) => {
+    onClose();
+    navigate({ to: "/board", search: { board: id } });
   };
 
   // Create a blank meeting on this date and jump into its editor.
@@ -121,6 +142,8 @@ export function NotesDrawer({ date, onClose }: Props) {
                 </h2>
                 <p className="mt-1 text-xs text-muted-foreground">
                   {dayNotes.length} {dayNotes.length === 1 ? "note" : "notes"}
+                  {dayBoards.length > 0 &&
+                    ` · ${dayBoards.length} ${dayBoards.length === 1 ? "board" : "boards"}`}
                   {dayMeetings.length > 0 &&
                     ` · ${dayMeetings.length} ${dayMeetings.length === 1 ? "meeting" : "meetings"}`}
                 </p>
@@ -134,25 +157,28 @@ export function NotesDrawer({ date, onClose }: Props) {
             </div>
 
             <div className="flex-1 space-y-3 overflow-y-auto px-6 py-5">
-              {dayNotes.length === 0 && dayMeetings.length === 0 && !adding && (
-                <button
-                  type="button"
-                  onClick={startAdd}
-                  disabled={!canEditNotes}
-                  title={canEditNotes ? "Add a note" : undefined}
-                  className="group flex w-full flex-col items-center justify-center rounded-2xl py-12 text-center transition-colors hover:bg-accent/40 disabled:cursor-default disabled:hover:bg-transparent"
-                >
-                  <div className="grid h-14 w-14 place-items-center rounded-2xl bg-accent transition-all group-hover:scale-105 group-enabled:group-hover:bg-primary group-enabled:group-hover:text-primary-foreground">
-                    <Plus className="h-6 w-6 text-primary group-enabled:group-hover:text-primary-foreground" />
-                  </div>
-                  <p className="mt-4 text-sm font-medium">No notes for this day</p>
-                  <p className="mt-1 text-xs text-muted-foreground">
-                    {canEditNotes
-                      ? "What needs to happen on this day?"
-                      : "View only — no notes yet"}
-                  </p>
-                </button>
-              )}
+              {dayNotes.length === 0 &&
+                dayMeetings.length === 0 &&
+                dayBoards.length === 0 &&
+                !adding && (
+                  <button
+                    type="button"
+                    onClick={startAdd}
+                    disabled={!canEditNotes}
+                    title={canEditNotes ? "Add a note" : undefined}
+                    className="group flex w-full flex-col items-center justify-center rounded-2xl py-12 text-center transition-colors hover:bg-accent/40 disabled:cursor-default disabled:hover:bg-transparent"
+                  >
+                    <div className="grid h-14 w-14 place-items-center rounded-2xl bg-accent transition-all group-hover:scale-105 group-enabled:group-hover:bg-primary group-enabled:group-hover:text-primary-foreground">
+                      <Plus className="h-6 w-6 text-primary group-enabled:group-hover:text-primary-foreground" />
+                    </div>
+                    <p className="mt-4 text-sm font-medium">No notes for this day</p>
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      {canEditNotes
+                        ? "What needs to happen on this day?"
+                        : "View only — no notes yet"}
+                    </p>
+                  </button>
+                )}
 
               {dayNotes.map((n) =>
                 editingId === n.id ? (
@@ -205,6 +231,34 @@ export function NotesDrawer({ date, onClose }: Props) {
 
               {adding && (
                 <Editor value={draft} onChange={setDraft} onSave={save} onCancel={cancel} />
+              )}
+
+              {dayBoards.length > 0 && (
+                <div className="pt-2">
+                  <div className="mb-2 flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-widest text-muted-foreground">
+                    <LayoutGrid className="h-3.5 w-3.5" /> Boards
+                  </div>
+                  <div className="space-y-2">
+                    {dayBoards.map((b) => (
+                      <button
+                        key={b.id}
+                        onClick={() => openBoard(b.id)}
+                        className="group flex w-full items-center gap-3 rounded-xl border border-border bg-card p-3 text-left transition-all hover:shadow-soft"
+                      >
+                        <div className="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-accent text-primary">
+                          <LayoutGrid className="h-4 w-4" />
+                        </div>
+                        <div className="min-w-0 flex-1">
+                          <p className="truncate text-sm font-semibold">{b.title}</p>
+                          <p className="mt-0.5 text-[11px] text-muted-foreground">
+                            {b.boxCount} {b.boxCount === 1 ? "box" : "boxes"}
+                            {b.openTaskCount > 0 ? ` · ${b.openTaskCount} open` : ""}
+                          </p>
+                        </div>
+                      </button>
+                    ))}
+                  </div>
+                </div>
               )}
 
               {dayMeetings.length > 0 && (

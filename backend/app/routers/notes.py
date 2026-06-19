@@ -2,8 +2,8 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
 from ..database import get_db
-from ..deps import get_current_org
-from ..models import Note, Organization
+from ..deps import get_current_org, get_current_user
+from ..models import Note, Organization, User
 from ..schemas import NoteCreateRequest, NoteOut, NoteUpdateRequest
 
 router = APIRouter(prefix="/api/notes", tags=["notes"])
@@ -37,9 +37,11 @@ def list_notes(
 def create_note(
     body: NoteCreateRequest,
     org: Organization = Depends(get_current_org),
+    user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> Note:
-    note = Note(organization_id=org.id, date=body.date, content=body.content)
+    # Notes stay org-wide (shared calendar); user_id is recorded for attribution.
+    note = Note(organization_id=org.id, user_id=user.id, date=body.date, content=body.content)
     db.add(note)
     db.commit()
     db.refresh(note)

@@ -1,6 +1,7 @@
 import uuid
+from typing import Literal
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
 
 from ..database import get_db
@@ -65,15 +66,18 @@ def _summary(board: Board) -> BoardSummaryOut:
 # ---------- Boards ----------
 @router.get("/boards", response_model=list[BoardSummaryOut])
 def list_boards(
+    scope: Literal["mine", "org"] = Query(default="mine"),
     org: Organization = Depends(get_current_org),
+    user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> list[BoardSummaryOut]:
-    boards = (
-        db.query(Board)
-        .filter(Board.organization_id == org.id)
-        .order_by(Board.date.desc(), Board.created_at.desc())
-        .all()
-    )
+    """List boards. `scope=mine` (default) returns only the caller's own boards
+    for the board list page; `scope=org` returns every member's boards for the
+    shared calendar."""
+    query = db.query(Board).filter(Board.organization_id == org.id)
+    if scope == "mine":
+        query = query.filter(Board.user_id == user.id)
+    boards = query.order_by(Board.date.desc(), Board.created_at.desc()).all()
     return [_summary(b) for b in boards]
 
 
@@ -81,10 +85,12 @@ def list_boards(
 def create_board(
     body: BoardCreateRequest,
     org: Organization = Depends(get_current_org),
+    user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> Board:
     board = Board(
         organization_id=org.id,
+        user_id=user.id,
         date=body.date,
         title=(body.title or "Untitled board").strip() or "Untitled board",
     )
@@ -148,11 +154,13 @@ def copy_board(
     board_id: str,
     body: BoardCopyRequest,
     org: Organization = Depends(get_current_org),
+    user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> BoardSummaryOut:
     source = _get_board(db, org, board_id)
     title = (body.title or source.title).strip() or source.title
-    clone = Board(organization_id=org.id, date=body.date, title=title)
+    # The copy belongs to whoever made it, not the source board's owner.
+    clone = Board(organization_id=org.id, user_id=user.id, date=body.date, title=title)
     db.add(clone)
     db.flush()
     for b in source.boxes:

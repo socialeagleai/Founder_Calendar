@@ -36,6 +36,24 @@ def _run_lightweight_migrations() -> None:
                     text("ALTER TABLE board_boxes ADD COLUMN tasks JSON NOT NULL DEFAULT '[]'")
                 )
 
+    # Per-user ownership of boards/meetings/templates/notes. Backfill existing
+    # rows to the organization owner so pre-existing data keeps a creator.
+    for table in ("boards", "meetings", "templates", "notes"):
+        if table not in inspector.get_table_names():
+            continue
+        cols = {c["name"] for c in inspector.get_columns(table)}
+        if "user_id" not in cols:
+            with engine.begin() as conn:
+                conn.execute(text(f"ALTER TABLE {table} ADD COLUMN user_id VARCHAR(32)"))
+                conn.execute(
+                    text(
+                        f"UPDATE {table} SET user_id = ("
+                        "  SELECT owner_id FROM organizations"
+                        f"  WHERE organizations.id = {table}.organization_id"
+                        ") WHERE user_id IS NULL"
+                    )
+                )
+
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):

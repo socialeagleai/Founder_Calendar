@@ -160,7 +160,10 @@ export const api = {
   deleteNote: (id: string) => request<void>(`/api/notes/${id}`, { method: "DELETE" }),
 
   // ---- boards ----
-  getBoards: () => request<BoardSummary[]>("/api/boards"),
+  // scope "mine" (default) = the caller's own boards; "org" = every member's
+  // boards for the shared calendar.
+  getBoards: (scope: "mine" | "org" = "mine") =>
+    request<BoardSummary[]>(`/api/boards?scope=${scope}`),
 
   createBoard: (date: string, title?: string) =>
     request<BoardDetail>("/api/boards", { method: "POST", body: { date, title } }),
@@ -189,7 +192,10 @@ export const api = {
   deleteBox: (boxId: string) => request<void>(`/api/boxes/${boxId}`, { method: "DELETE" }),
 
   // ---- meetings ----
-  getMeetings: () => request<MeetingSummary[]>("/api/meetings"),
+  // scope "mine" (default) = the caller's own meetings; "org" = every member's
+  // meetings for the shared calendar.
+  getMeetings: (scope: "mine" | "org" = "mine") =>
+    request<MeetingSummary[]>(`/api/meetings?scope=${scope}`),
 
   createMeeting: (input: MeetingInput) =>
     request<MeetingDetail>("/api/meetings", { method: "POST", body: input }),

@@ -79,6 +79,11 @@ class Note(Base):
     organization_id: Mapped[str] = mapped_column(
         ForeignKey("organizations.id", ondelete="CASCADE"), index=True, nullable=False
     )
+    # The member who created this note. Notes stay org-wide (visible to everyone
+    # on the shared calendar); user_id is kept for attribution.
+    user_id: Mapped[str | None] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), index=True, nullable=True
+    )
     date: Mapped[str] = mapped_column(String(10), index=True, nullable=False)  # YYYY-MM-DD
     content: Mapped[str] = mapped_column(Text, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
@@ -95,6 +100,11 @@ class Board(Base):
     id: Mapped[str] = mapped_column(String(32), primary_key=True, default=_uuid)
     organization_id: Mapped[str] = mapped_column(
         ForeignKey("organizations.id", ondelete="CASCADE"), index=True, nullable=False
+    )
+    # The member who owns this board. Boards are private to their creator in the
+    # board list, but visible to the whole org on the shared calendar.
+    user_id: Mapped[str | None] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), index=True, nullable=True
     )
     date: Mapped[str] = mapped_column(String(10), index=True, nullable=False)  # YYYY-MM-DD
     title: Mapped[str] = mapped_column(String(255), default="Untitled board", nullable=False)
@@ -147,6 +157,10 @@ class Template(Base):
     organization_id: Mapped[str] = mapped_column(
         ForeignKey("organizations.id", ondelete="CASCADE"), index=True, nullable=False
     )
+    # The member who authored this template. Templates are private per user.
+    user_id: Mapped[str | None] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), index=True, nullable=True
+    )
     kind: Mapped[str] = mapped_column(String(16), index=True, nullable=False)  # board|meeting
     name: Mapped[str] = mapped_column(String(255), default="Untitled template", nullable=False)
     data: Mapped[dict] = mapped_column(JSON, default=dict, nullable=False)
@@ -166,6 +180,11 @@ class Meeting(Base):
     id: Mapped[str] = mapped_column(String(32), primary_key=True, default=_uuid)
     organization_id: Mapped[str] = mapped_column(
         ForeignKey("organizations.id", ondelete="CASCADE"), index=True, nullable=False
+    )
+    # The member who owns this meeting. Private in the meeting list, but visible
+    # to the whole org on the shared calendar.
+    user_id: Mapped[str | None] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), index=True, nullable=True
     )
     name: Mapped[str] = mapped_column(String(255), default="Untitled meeting", nullable=False)
     # The calendar date this meeting is scheduled on (YYYY-MM-DD). Empty for

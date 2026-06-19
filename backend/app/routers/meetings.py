@@ -1,9 +1,11 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from typing import Literal
+
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
 
 from ..database import get_db
-from ..deps import get_current_org
-from ..models import Meeting, Organization
+from ..deps import get_current_org, get_current_user
+from ..models import Meeting, Organization, User
 from ..schemas import (
     MeetingCreateRequest,
     MeetingDetailOut,
@@ -41,15 +43,18 @@ def _summary(m: Meeting) -> MeetingSummaryOut:
 
 @router.get("", response_model=list[MeetingSummaryOut])
 def list_meetings(
+    scope: Literal["mine", "org"] = Query(default="mine"),
     org: Organization = Depends(get_current_org),
+    user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> list[MeetingSummaryOut]:
-    meetings = (
-        db.query(Meeting)
-        .filter(Meeting.organization_id == org.id)
-        .order_by(Meeting.created_at.desc())
-        .all()
-    )
+    """List meetings. `scope=mine` (default) returns only the caller's meetings
+    for the meeting list page; `scope=org` returns every member's meetings for
+    the shared calendar."""
+    query = db.query(Meeting).filter(Meeting.organization_id == org.id)
+    if scope == "mine":
+        query = query.filter(Meeting.user_id == user.id)
+    meetings = query.order_by(Meeting.created_at.desc()).all()
     return [_summary(m) for m in meetings]
 
 
@@ -57,10 +62,12 @@ def list_meetings(
 def create_meeting(
     body: MeetingCreateRequest,
     org: Organization = Depends(get_current_org),
+    user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> Meeting:
     meeting = Meeting(
         organization_id=org.id,
+        user_id=user.id,
         name=body.name.strip() or "Untitled meeting",
         date=body.date,
         schedule=body.schedule,

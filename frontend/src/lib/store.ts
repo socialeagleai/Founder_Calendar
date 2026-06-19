@@ -172,6 +172,10 @@ interface AppState {
   boards: BoardSummary[];
   meetings: MeetingSummary[];
   templates: Template[];
+  // Org-wide feed for the shared calendar: every member's boards/meetings.
+  // (`boards`/`meetings` above are only the current user's, for their lists.)
+  calendarBoards: BoardSummary[];
+  calendarMeetings: MeetingSummary[];
   status: Status;
 
   // Lifecycle
@@ -180,6 +184,7 @@ interface AppState {
   refreshBoards: () => Promise<void>;
   refreshMeetings: () => Promise<void>;
   refreshTemplates: () => Promise<void>;
+  refreshCalendarFeed: () => Promise<void>;
 
   // Boards
   createBoard: (date: string, title?: string) => Promise<BoardDetail>;
@@ -239,6 +244,8 @@ export const useStore = create<AppState>((set, get) => ({
   boards: [],
   meetings: [],
   templates: [],
+  calendarBoards: [],
+  calendarMeetings: [],
   status: "idle",
 
   bootstrap: async () => {
@@ -265,6 +272,8 @@ export const useStore = create<AppState>((set, get) => ({
         boards: [],
         meetings: [],
         templates: [],
+        calendarBoards: [],
+        calendarMeetings: [],
       });
     } finally {
       set({ status: "ready" });
@@ -280,19 +289,41 @@ export const useStore = create<AppState>((set, get) => ({
     ]);
     set({ access });
     if (!org) {
-      set({ organization: null, team: [], notes: [], boards: [], meetings: [], templates: [] });
+      set({
+        organization: null,
+        team: [],
+        notes: [],
+        boards: [],
+        meetings: [],
+        templates: [],
+        calendarBoards: [],
+        calendarMeetings: [],
+      });
       return;
     }
-    const [team, notes, boards, meetings, templates] = await Promise.all([
-      api.getTeam(),
-      api.getNotes(),
-      api.getBoards(),
-      api.getMeetings(),
-      // Templates are a non-critical enhancement — never let a missing/old
-      // backend route (404) reject the whole load and clear the session.
-      api.getTemplates().catch(() => []),
-    ]);
-    set({ organization: org, team, notes, boards, meetings, templates });
+    const [team, notes, boards, meetings, templates, calendarBoards, calendarMeetings] =
+      await Promise.all([
+        api.getTeam(),
+        api.getNotes(),
+        api.getBoards(), // my boards (list page)
+        api.getMeetings(), // my meetings (list page)
+        // Templates are a non-critical enhancement — never let a missing/old
+        // backend route (404) reject the whole load and clear the session.
+        api.getTemplates().catch(() => []),
+        // Org-wide feed for the shared calendar (tolerate old backends).
+        api.getBoards("org").catch(() => []),
+        api.getMeetings("org").catch(() => []),
+      ]);
+    set({
+      organization: org,
+      team,
+      notes,
+      boards,
+      meetings,
+      templates,
+      calendarBoards,
+      calendarMeetings,
+    });
   },
 
   refreshBoards: async () => {
@@ -307,47 +338,69 @@ export const useStore = create<AppState>((set, get) => ({
     set({ templates: await api.getTemplates() });
   },
 
+  // Reload the org-wide calendar feed (everyone's boards + meetings).
+  refreshCalendarFeed: async () => {
+    const [calendarBoards, calendarMeetings] = await Promise.all([
+      api.getBoards("org").catch(() => []),
+      api.getMeetings("org").catch(() => []),
+    ]);
+    set({ calendarBoards, calendarMeetings });
+  },
+
   createBoard: async (date, title) => {
     const board = await api.createBoard(date, title);
     await get().refreshBoards();
+    void get().refreshCalendarFeed();
     return board;
   },
 
   renameBoard: async (id, title) => {
     const updated = await api.renameBoard(id, title);
-    set((s) => ({ boards: s.boards.map((b) => (b.id === id ? updated : b)) }));
+    set((s) => ({
+      boards: s.boards.map((b) => (b.id === id ? updated : b)),
+      calendarBoards: s.calendarBoards.map((b) => (b.id === id ? updated : b)),
+    }));
   },
 
   copyBoard: async (id, date, title) => {
     await api.copyBoard(id, date, title);
     await get().refreshBoards();
+    void get().refreshCalendarFeed();
   },
 
   deleteBoard: async (id) => {
     await api.deleteBoard(id);
-    set((s) => ({ boards: s.boards.filter((b) => b.id !== id) }));
+    set((s) => ({
+      boards: s.boards.filter((b) => b.id !== id),
+      calendarBoards: s.calendarBoards.filter((b) => b.id !== id),
+    }));
   },
 
   createMeeting: async (input) => {
     const meeting = await api.createMeeting(input);
     await get().refreshMeetings();
+    void get().refreshCalendarFeed();
     return meeting;
   },
 
   renameMeeting: async (id, name) => {
     const updated = await api.updateMeeting(id, { name });
+    const patch = (m: MeetingSummary): MeetingSummary =>
+      m.id === id
+        ? { ...m, name: updated.name, schedule: updated.schedule, duration: updated.duration }
+        : m;
     set((s) => ({
-      meetings: s.meetings.map((m) =>
-        m.id === id
-          ? { ...m, name: updated.name, schedule: updated.schedule, duration: updated.duration }
-          : m,
-      ),
+      meetings: s.meetings.map(patch),
+      calendarMeetings: s.calendarMeetings.map(patch),
     }));
   },
 
   deleteMeeting: async (id) => {
     await api.deleteMeeting(id);
-    set((s) => ({ meetings: s.meetings.filter((m) => m.id !== id) }));
+    set((s) => ({
+      meetings: s.meetings.filter((m) => m.id !== id),
+      calendarMeetings: s.calendarMeetings.filter((m) => m.id !== id),
+    }));
   },
 
   createTemplate: async (input) => {
@@ -421,10 +474,14 @@ export const useStore = create<AppState>((set, get) => ({
       token: null,
       currentUser: null,
       organization: null,
+      access: null,
       team: [],
       notes: [],
       boards: [],
       meetings: [],
+      templates: [],
+      calendarBoards: [],
+      calendarMeetings: [],
       status: "ready",
     });
   },

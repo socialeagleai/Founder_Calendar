@@ -24,7 +24,10 @@ export const Route = createFileRoute("/dashboard")({
 });
 
 function DashboardPage() {
-  const { notes, team, organization, boards, meetings } = useStore();
+  // Personal lists use the user's own boards/meetings; the calendar widget uses
+  // the org-wide feed so it matches the shared Calendar page.
+  const { notes, team, organization, boards, meetings, calendarBoards, calendarMeetings } =
+    useStore();
   const [month, setMonth] = useState(new Date());
   const today = new Date();
 
@@ -54,15 +57,15 @@ function DashboardPage() {
 
   const boardCounts = useMemo(() => {
     const m: Record<string, number> = {};
-    for (const b of boards) m[b.date] = (m[b.date] ?? 0) + 1;
+    for (const b of calendarBoards) m[b.date] = (m[b.date] ?? 0) + 1;
     return m;
-  }, [boards]);
+  }, [calendarBoards]);
 
   const meetingCounts = useMemo(() => {
     const m: Record<string, number> = {};
-    for (const mt of meetings) if (mt.date) m[mt.date] = (m[mt.date] ?? 0) + 1;
+    for (const mt of calendarMeetings) if (mt.date) m[mt.date] = (m[mt.date] ?? 0) + 1;
     return m;
-  }, [meetings]);
+  }, [calendarMeetings]);
 
   const recentBoards = [...boards]
     .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))

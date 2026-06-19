@@ -4,8 +4,8 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
 
 from ..database import get_db
-from ..deps import get_current_org
-from ..models import Organization, Template
+from ..deps import get_current_org, get_current_user
+from ..models import Organization, Template, User
 from ..schemas import TemplateCreateRequest, TemplateKind, TemplateOut, TemplateUpdateRequest
 
 router = APIRouter(prefix="/api/templates", tags=["templates"])
@@ -101,16 +101,21 @@ def _default_meeting_templates() -> list[dict]:
     ]
 
 
-def _seed_defaults_if_empty(db: Session, org: Organization) -> None:
-    """Give brand-new (or never-seeded) orgs the starter meeting templates so the
-    existing meeting templates are present and editable here."""
-    exists = db.query(Template.id).filter(Template.organization_id == org.id).first()
+def _seed_defaults_if_empty(db: Session, org: Organization, user: User) -> None:
+    """Give each member their own starter meeting templates the first time they
+    open My Templates — templates are private per user."""
+    exists = (
+        db.query(Template.id)
+        .filter(Template.organization_id == org.id, Template.user_id == user.id)
+        .first()
+    )
     if exists:
         return
     for tpl in _default_meeting_templates():
         db.add(
             Template(
                 organization_id=org.id,
+                user_id=user.id,
                 kind="meeting",
                 name=tpl["name"],
                 data=tpl["data"],
@@ -119,10 +124,14 @@ def _seed_defaults_if_empty(db: Session, org: Organization) -> None:
     db.commit()
 
 
-def _get_template(db: Session, org: Organization, template_id: str) -> Template:
+def _get_template(db: Session, org: Organization, user: User, template_id: str) -> Template:
     template = (
         db.query(Template)
-        .filter(Template.id == template_id, Template.organization_id == org.id)
+        .filter(
+            Template.id == template_id,
+            Template.organization_id == org.id,
+            Template.user_id == user.id,
+        )
         .first()
     )
     if not template:
@@ -134,10 +143,13 @@ def _get_template(db: Session, org: Organization, template_id: str) -> Template:
 def list_templates(
     kind: TemplateKind | None = Query(default=None),
     org: Organization = Depends(get_current_org),
+    user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> list[Template]:
-    _seed_defaults_if_empty(db, org)
-    query = db.query(Template).filter(Template.organization_id == org.id)
+    _seed_defaults_if_empty(db, org, user)
+    query = db.query(Template).filter(
+        Template.organization_id == org.id, Template.user_id == user.id
+    )
     if kind is not None:
         query = query.filter(Template.kind == kind)
     return query.order_by(Template.created_at.desc()).all()
@@ -147,10 +159,12 @@ def list_templates(
 def create_template(
     body: TemplateCreateRequest,
     org: Organization = Depends(get_current_org),
+    user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> Template:
     template = Template(
         organization_id=org.id,
+        user_id=user.id,
         kind=body.kind,
         name=body.name.strip() or "Untitled template",
         data=body.data,
@@ -166,9 +180,10 @@ def update_template(
     template_id: str,
     body: TemplateUpdateRequest,
     org: Organization = Depends(get_current_org),
+    user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> Template:
-    template = _get_template(db, org, template_id)
+    template = _get_template(db, org, user, template_id)
     if body.name is not None:
         template.name = body.name.strip() or "Untitled template"
     if body.data is not None:
@@ -182,9 +197,10 @@ def update_template(
 def delete_template(
     template_id: str,
     org: Organization = Depends(get_current_org),
+    user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> None:
-    template = _get_template(db, org, template_id)
+    template = _get_template(db, org, user, template_id)
     db.delete(template)
     db.commit()
     return None
