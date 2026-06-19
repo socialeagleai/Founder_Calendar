@@ -12,7 +12,6 @@ export const Route = createFileRoute("/signup")({
   validateSearch: (search: Record<string, unknown>): { redirect?: string } => ({
     redirect: typeof search.redirect === "string" ? search.redirect : undefined,
   }),
-  head: () => ({ meta: [{ title: "Sign up — Founder Calendar" }] }),
   component: SignupPage,
 });
 

@@ -58,7 +58,6 @@ export const Route = createFileRoute("/meeting")({
     meeting: typeof search.meeting === "string" ? search.meeting : undefined,
     mode: search.mode === "editor" ? "editor" : undefined,
   }),
-  head: () => ({ meta: [{ title: "Meetings — Founder Calendar" }] }),
   component: MeetingPage,
 });
 

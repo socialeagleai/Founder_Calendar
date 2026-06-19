@@ -7,7 +7,6 @@ import { useStore } from "@/lib/store";
 import { format } from "date-fns";
 
 export const Route = createFileRoute("/calendar")({
-  head: () => ({ meta: [{ title: "Calendar — Founder Calendar" }] }),
   component: CalendarPage,
 });
 

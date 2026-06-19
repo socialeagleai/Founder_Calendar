@@ -36,7 +36,6 @@ import { useState } from "react";
 import { toast } from "sonner";
 
 export const Route = createFileRoute("/team")({
-  head: () => ({ meta: [{ title: "Team — Founder Calendar" }] }),
   component: TeamPage,
 });
 

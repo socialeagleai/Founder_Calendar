@@ -73,17 +73,19 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
     meta: [
       { charSet: "utf-8" },
       { name: "viewport", content: "width=device-width, initial-scale=1" },
-      { title: "Founder Calendar — Plan. Align. Execute." },
+      // Static app title — individual pages no longer override it.
+      { title: "Founder Calendar" },
       {
         name: "description",
-        content:
-          "Founder Calendar is a premium monthly planning workspace for founders and teams.",
+        content: "Founder Calendar is a premium monthly planning workspace for founders and teams.",
       },
       { property: "og:title", content: "Founder Calendar" },
       { property: "og:description", content: "Plan. Align. Execute." },
     ],
     links: [
       { rel: "stylesheet", href: appCss },
+      { rel: "icon", href: "/favicon.svg", type: "image/svg+xml" },
+      { rel: "apple-touch-icon", href: "/social-eagle-logo.png" },
       { rel: "preconnect", href: "https://fonts.googleapis.com" },
       { rel: "preconnect", href: "https://fonts.gstatic.com", crossOrigin: "anonymous" },
       {

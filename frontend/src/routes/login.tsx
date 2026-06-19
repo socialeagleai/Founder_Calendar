@@ -13,7 +13,6 @@ export const Route = createFileRoute("/login")({
   validateSearch: (search: Record<string, unknown>): { redirect?: string } => ({
     redirect: typeof search.redirect === "string" ? search.redirect : undefined,
   }),
-  head: () => ({ meta: [{ title: "Login — Founder Calendar" }] }),
   component: LoginPage,
 });
 

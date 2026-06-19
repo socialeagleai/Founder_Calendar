@@ -9,7 +9,6 @@ import { Logo } from "@/components/logo";
 import { Button } from "@/components/ui/button";
 
 export const Route = createFileRoute("/shared/$token")({
-  head: () => ({ meta: [{ title: "Shared board — Founder Calendar" }] }),
   component: SharedBoardPage,
 });
 
@@ -157,7 +156,12 @@ function SharedBoardPage() {
   return (
     <div className="min-h-screen bg-background">
       <header className="sticky top-0 z-20 flex h-16 items-center gap-3 border-b border-border bg-background/70 px-4 backdrop-blur-xl lg:px-8">
-        <Button onClick={() => navigate({ to: "/" })} variant="outline" size="sm" className="gap-1.5">
+        <Button
+          onClick={() => navigate({ to: "/" })}
+          variant="outline"
+          size="sm"
+          className="gap-1.5"
+        >
           <ArrowLeft className="h-4 w-4" /> Workspace
         </Button>
         <Logo size="sm" />

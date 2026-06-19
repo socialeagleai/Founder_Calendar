@@ -19,7 +19,6 @@ import {
 import { format, isAfter, parseISO, startOfMonth, endOfMonth } from "date-fns";
 
 export const Route = createFileRoute("/dashboard")({
-  head: () => ({ meta: [{ title: "Dashboard — Founder Calendar" }] }),
   component: DashboardPage,
 });
 

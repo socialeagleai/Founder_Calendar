@@ -54,7 +54,6 @@ export const Route = createFileRoute("/templates")({
   validateSearch: (search: Record<string, unknown>): { board?: string } => ({
     board: typeof search.board === "string" ? search.board : undefined,
   }),
-  head: () => ({ meta: [{ title: "My Templates — Founder Calendar" }] }),
   component: TemplatesPage,
 });
 

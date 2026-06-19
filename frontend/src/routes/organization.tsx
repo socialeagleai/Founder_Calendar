@@ -32,7 +32,6 @@ import {
 } from "@/components/ui/dialog";
 
 export const Route = createFileRoute("/organization")({
-  head: () => ({ meta: [{ title: "Organization — Founder Calendar" }] }),
   component: OrgPage,
 });
 

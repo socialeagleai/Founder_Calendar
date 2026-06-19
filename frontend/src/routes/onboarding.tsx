@@ -10,7 +10,6 @@ import { toast } from "sonner";
 import { Building2 } from "lucide-react";
 
 export const Route = createFileRoute("/onboarding")({
-  head: () => ({ meta: [{ title: "Create Organization — Founder Calendar" }] }),
   component: OnboardingPage,
 });
 
@@ -77,7 +76,10 @@ function OnboardingPage() {
                 placeholder="What does your team do?"
               />
             </div>
-            <Button type="submit" className="h-11 w-full bg-primary text-primary-foreground hover:bg-primary-dark">
+            <Button
+              type="submit"
+              className="h-11 w-full bg-primary text-primary-foreground hover:bg-primary-dark"
+            >
               Create Organization
             </Button>
           </form>

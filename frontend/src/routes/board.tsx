@@ -58,7 +58,6 @@ export const Route = createFileRoute("/board")({
     board: typeof search.board === "string" ? search.board : undefined,
     mode: search.mode === "editor" ? "editor" : undefined,
   }),
-  head: () => ({ meta: [{ title: "My Board — Founder Calendar" }] }),
   component: BoardPage,
 });
 
