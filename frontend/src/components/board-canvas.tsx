@@ -19,7 +19,7 @@ export interface CardHandlers {
 }
 
 // Off-screen mirror used to measure the height the body text needs at a given
-// width — so we can trade width for height (and vice-versa) and never scroll.
+// width - so we can trade width for height (and vice-versa) and never scroll.
 let mirror: HTMLDivElement | null = null;
 function measureContentHeight(ta: HTMLTextAreaElement, text: string, widthPx: number): number {
   if (typeof document === "undefined") return 0;
@@ -97,7 +97,7 @@ export function BoardBoxCard({
 
   // Grow the box so the notes + checklist always fit (never scroll). The notes'
   // natural height is measured at the current width; the task list adds its own
-  // rendered height. Never shrinks — manual resize stays authoritative downward.
+  // rendered height. Never shrinks - manual resize stays authoritative downward.
   useLayoutEffect(() => {
     const ta = taRef.current;
     const header = headerRef.current;
@@ -263,7 +263,7 @@ export function BoardBoxCard({
         className="w-full flex-1 resize-none overflow-auto whitespace-pre-wrap break-words bg-transparent p-3 text-sm leading-relaxed outline-none placeholder:text-muted-foreground/50"
       />
 
-      {/* Checklist — tasks with a symbol (▢ / ☑) to mark done. */}
+      {/* Checklist - tasks with a symbol (▢ / ☑) to mark done. */}
       {(tasks.length > 0 || !readOnly) && (
         <div ref={tasksRef} className="shrink-0 border-t border-border px-2.5 py-2">
           {tasks.map((task) => (
@@ -330,7 +330,7 @@ export function BoardBoxCard({
         </div>
       )}
 
-      {/* Resize edges + corners — only in editor mode. */}
+      {/* Resize edges + corners - only in editor mode. */}
       {!readOnly && (
         <>
           <div

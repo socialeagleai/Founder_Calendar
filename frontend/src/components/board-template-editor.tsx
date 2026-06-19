@@ -8,7 +8,7 @@ import { BoardCanvas, type CardHandlers } from "@/components/board-canvas";
 import { Button } from "@/components/ui/button";
 
 /**
- * Full-page board-template authoring — the same free-form canvas as a real
+ * Full-page board-template authoring - the same free-form canvas as a real
  * board, but everything lives in local state and is saved as a template (no
  * per-box API calls). `templateId` undefined means "new".
  */
@@ -42,7 +42,7 @@ export function BoardTemplateEditor({
       setBoxes((prev) => prev.map((b) => (b.id === id ? { ...b, ...patch } : b))),
     [],
   );
-  // Templates keep everything in local state — "persist" just merges the final
+  // Templates keep everything in local state - "persist" just merges the final
   // (rounded) drag/resize values back in. Real saving happens on "Save template".
   const persist = useCallback(
     (id: string, patch: Partial<Box>) =>

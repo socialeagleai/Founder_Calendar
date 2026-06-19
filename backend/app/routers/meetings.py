@@ -4,7 +4,12 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
 
 from ..database import get_db
-from ..deps import get_current_org, get_current_user, require_page_edit
+from ..deps import (
+    ensure_owns_or_edit,
+    get_current_org,
+    get_current_user,
+    require_page_access,
+)
 from ..models import Meeting, Organization, User
 from ..schemas import (
     MeetingCreateRequest,
@@ -15,7 +20,9 @@ from ..schemas import (
 
 router = APIRouter(prefix="/api/meetings", tags=["meetings"])
 
-require_meeting_edit = require_page_edit("meeting")
+# "view" lets a member manage their own meetings; "edit" also lets them change
+# meetings created by other members.
+require_meeting_access = require_page_access("meeting")
 
 
 def _get_meeting(db: Session, org: Organization, meeting_id: str) -> Meeting:
@@ -27,6 +34,11 @@ def _get_meeting(db: Session, org: Organization, meeting_id: str) -> Meeting:
     if not meeting:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Meeting not found")
     return meeting
+
+
+def _detail(m: Meeting, user: User) -> Meeting:
+    m.mine = m.user_id == user.id  # type: ignore[attr-defined]
+    return m
 
 
 def _summary(m: Meeting) -> MeetingSummaryOut:
@@ -65,7 +77,7 @@ def list_meetings(
     "",
     response_model=MeetingDetailOut,
     status_code=status.HTTP_201_CREATED,
-    dependencies=[Depends(require_meeting_edit)],
+    dependencies=[Depends(require_meeting_access)],
 )
 def create_meeting(
     body: MeetingCreateRequest,
@@ -85,30 +97,30 @@ def create_meeting(
     db.add(meeting)
     db.commit()
     db.refresh(meeting)
-    return meeting
+    return _detail(meeting, user)
 
 
 @router.get("/{meeting_id}", response_model=MeetingDetailOut)
 def get_meeting(
     meeting_id: str,
     org: Organization = Depends(get_current_org),
+    user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> Meeting:
-    return _get_meeting(db, org, meeting_id)
+    return _detail(_get_meeting(db, org, meeting_id), user)
 
 
-@router.patch(
-    "/{meeting_id}",
-    response_model=MeetingDetailOut,
-    dependencies=[Depends(require_meeting_edit)],
-)
+@router.patch("/{meeting_id}", response_model=MeetingDetailOut)
 def update_meeting(
     meeting_id: str,
     body: MeetingUpdateRequest,
     org: Organization = Depends(get_current_org),
+    user: User = Depends(get_current_user),
+    level: str = Depends(require_meeting_access),
     db: Session = Depends(get_db),
 ) -> Meeting:
     meeting = _get_meeting(db, org, meeting_id)
+    ensure_owns_or_edit(level, meeting.user_id, user, "meetings")
     if body.name is not None:
         meeting.name = body.name.strip() or "Untitled meeting"
     if body.date is not None:
@@ -121,20 +133,19 @@ def update_meeting(
         meeting.sections = [s.model_dump() for s in body.sections]
     db.commit()
     db.refresh(meeting)
-    return meeting
+    return _detail(meeting, user)
 
 
-@router.delete(
-    "/{meeting_id}",
-    status_code=status.HTTP_204_NO_CONTENT,
-    dependencies=[Depends(require_meeting_edit)],
-)
+@router.delete("/{meeting_id}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_meeting(
     meeting_id: str,
     org: Organization = Depends(get_current_org),
+    user: User = Depends(get_current_user),
+    level: str = Depends(require_meeting_access),
     db: Session = Depends(get_db),
 ) -> None:
     meeting = _get_meeting(db, org, meeting_id)
+    ensure_owns_or_edit(level, meeting.user_id, user, "meetings")
     db.delete(meeting)
     db.commit()
     return None

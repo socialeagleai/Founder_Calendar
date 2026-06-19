@@ -160,7 +160,7 @@ function BoardCard({
 
   const confirmCopy = async () => {
     if (!copyDate) return;
-    // Auto-named boards ("Board · 18 Jun 2026") embed the date — regenerate it
+    // Auto-named boards ("Board · 18 Jun 2026") embed the date - regenerate it
     // for the new date; keep any custom title as-is.
     const isAutoName = /^Board · \d{1,2} [A-Za-z]{3} \d{4}$/.test(board.title);
     const title = isAutoName ? `Board · ${format(copyDate, "d MMM yyyy")}` : board.title;
@@ -317,7 +317,9 @@ function BoardPage() {
   const navigate = useNavigate();
   const { board: selectedId, mode } = Route.useSearch();
   const { boards, createBoard, renameBoard, copyBoard, deleteBoard } = useStore();
-  const canEdit = usePageAccess("board") === "edit";
+  // Every board on this page is the member's own, so view access is enough to
+  // create/rename/delete them (edit access only matters for others' boards).
+  const canEdit = usePageAccess("board") !== "none";
 
   const openBoard = (id: string) => navigate({ to: "/board", search: { board: id } });
   const closeBoard = () => navigate({ to: "/board", search: {} });

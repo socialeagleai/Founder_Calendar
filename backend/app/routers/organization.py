@@ -41,7 +41,7 @@ def list_my_organizations(
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> list[OrgMembershipOut]:
-    """Every org the user belongs to (owned + accepted memberships) — powers the
+    """Every org the user belongs to (owned + accepted memberships) - powers the
     navbar org switcher. Served at /api/organizations."""
     out: list[OrgMembershipOut] = []
     for org in orgs_for_user(db, user):
@@ -78,7 +78,7 @@ def create_organization(
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> Organization:
-    # A user may own multiple organizations — no one-org limit.
+    # A user may own multiple organizations - no one-org limit.
     org = Organization(name=body.name, description=body.description, owner_id=user.id)
     db.add(org)
     db.flush()  # assign org.id before creating the owner member
@@ -120,7 +120,7 @@ def leave_organization(
     if org.owner_id == user.id:
         raise HTTPException(
             status.HTTP_400_BAD_REQUEST,
-            "The owner can't leave their own organization — delete it instead.",
+            "The owner can't leave their own organization - delete it instead.",
         )
     member = (
         db.query(TeamMember)

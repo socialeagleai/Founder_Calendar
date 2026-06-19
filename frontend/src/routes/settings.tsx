@@ -21,7 +21,7 @@ function SettingsPage() {
   const [pEmail, setPEmail] = useState(user?.email ?? "");
   const [pPass, setPPass] = useState("");
 
-  // Profile data hydrates asynchronously — sync the form when it loads.
+  // Profile data hydrates asynchronously - sync the form when it loads.
   useEffect(() => {
     if (user) {
       setPName(user.name);

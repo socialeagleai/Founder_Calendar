@@ -378,7 +378,8 @@ function MeetingPage() {
   const navigate = useNavigate();
   const { meeting: selectedId, mode } = Route.useSearch();
   const { meetings, createMeeting, renameMeeting, deleteMeeting } = useStore();
-  const canEdit = usePageAccess("meeting") === "edit";
+  // Every meeting on this page is the member's own, so view access is enough.
+  const canEdit = usePageAccess("meeting") !== "none";
 
   const openMeeting = (id: string) => navigate({ to: "/meeting", search: { meeting: id } });
   const closeMeeting = () => navigate({ to: "/meeting", search: {} });

@@ -78,8 +78,10 @@ export function MeetingEditor({
   const [duration, setDuration] = useState("");
   const [sections, setSections] = useState<MeetingSection[]>([]);
   const [loading, setLoading] = useState(true);
-  const canEdit = usePageAccess("meeting") === "edit";
-  const [mode, setMode] = useState<Mode>(canEdit ? initialMode : "view");
+  // "edit" access can change anyone's meeting; "view" can only edit their own.
+  const level = usePageAccess("meeting");
+  const canEdit = level === "edit" || meeting?.mine === true;
+  const [mode, setMode] = useState<Mode>("view");
   const readOnly = mode === "view";
 
   useEffect(() => setMode(canEdit ? initialMode : "view"), [initialMode, canEdit]);
@@ -261,7 +263,7 @@ export function MeetingEditor({
         <div className="flex items-center gap-2 text-sm text-muted-foreground">
           <span className="font-medium">Duration</span>
           {readOnly ? (
-            <span>{duration || "—"}</span>
+            <span>{duration || "-"}</span>
           ) : (
             <Input
               value={duration}
@@ -332,7 +334,7 @@ export function MeetingEditor({
             {section.type === "text" ? (
               readOnly ? (
                 <p className="whitespace-pre-wrap text-sm leading-relaxed text-foreground/90">
-                  {section.body || "—"}
+                  {section.body || "-"}
                 </p>
               ) : (
                 <Textarea

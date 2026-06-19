@@ -22,7 +22,7 @@ from .routers import (
 
 def _run_lightweight_migrations() -> None:
     """create_all() never ALTERs existing tables, so add columns introduced
-    after a table first shipped. Idempotent — safe to run on every startup.
+    after a table first shipped. Idempotent - safe to run on every startup.
     (For a real deployment, swap this for Alembic.)"""
     inspector = inspect(engine)
     if "meetings" in inspector.get_table_names():

@@ -10,7 +10,7 @@ const GSI_SRC = "https://accounts.google.com/gsi/client";
 
 /**
  * Whether to render the real "Sign in with Google" button. Requires BOTH a
- * client ID and the explicit `VITE_GOOGLE_SIGNIN=true` opt-in — otherwise the
+ * client ID and the explicit `VITE_GOOGLE_SIGNIN=true` opt-in - otherwise the
  * Google Identity Services button is hidden so it can't spam the console with
  * "origin not allowed" errors before the OAuth client is configured. Once you've
  * added your origin to the OAuth client's Authorized JavaScript origins, set

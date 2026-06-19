@@ -18,7 +18,7 @@ class Settings(BaseSettings):
 
     cors_origins: str = "http://localhost:3000,http://localhost:5173,http://localhost:8080"
 
-    # Base URL of the frontend — used to build password-reset links.
+    # Base URL of the frontend - used to build password-reset links.
     app_base_url: str = "http://localhost:8080"
 
     # Password reset token lifetime.

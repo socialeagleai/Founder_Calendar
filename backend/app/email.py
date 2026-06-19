@@ -14,7 +14,7 @@ def send_email(to: str, subject: str, html: str, text: str | None = None) -> boo
     """Send an HTML email. Returns True if actually sent, False if SMTP is not
     configured or sending failed (the caller should log a fallback link)."""
     if not settings.smtp_host:
-        logger.warning("SMTP not configured — email to %s not sent (subject: %s)", to, subject)
+        logger.warning("SMTP not configured - email to %s not sent (subject: %s)", to, subject)
         return False
 
     msg = EmailMessage()
@@ -32,7 +32,7 @@ def send_email(to: str, subject: str, html: str, text: str | None = None) -> boo
                 server.login(settings.smtp_user, settings.smtp_password)
             server.send_message(msg)
         return True
-    except Exception as exc:  # noqa: BLE001 — never let email failure 500 a request
+    except Exception as exc:  # noqa: BLE001 - never let email failure 500 a request
         logger.error("Failed to send email to %s: %s", to, exc)
         return False
 

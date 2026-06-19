@@ -160,7 +160,7 @@ export const api = {
   // ---- organization ----
   getOrganization: () => request<Organization | null>("/api/organization"),
 
-  // Every org the user belongs to (owned + accepted memberships) — for the switcher.
+  // Every org the user belongs to (owned + accepted memberships) - for the switcher.
   getOrganizations: () => request<OrgMembership[]>("/api/organizations"),
 
   createOrg: (name: string, description: string) =>

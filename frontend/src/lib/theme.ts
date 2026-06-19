@@ -5,7 +5,7 @@ export type Theme = "light" | "dark";
 const STORAGE_KEY = "founder-theme";
 
 // Blocking snippet injected into <head> so the correct theme is applied before
-// first paint (prevents a flash and avoids SSR hydration mismatch — it runs as
+// first paint (prevents a flash and avoids SSR hydration mismatch - it runs as
 // raw DOM, not React).
 export const themeInitScript = `(function(){try{var t=localStorage.getItem('${STORAGE_KEY}');if(!t){t=window.matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light';}var d=document.documentElement;if(t==='dark'){d.classList.add('dark');}d.style.colorScheme=t;}catch(e){}})();`;
 

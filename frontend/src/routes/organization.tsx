@@ -59,7 +59,7 @@ function OrgPage() {
     }
   };
 
-  // Org loads asynchronously after mount — sync the form once it arrives.
+  // Org loads asynchronously after mount - sync the form once it arrives.
   useEffect(() => {
     if (organization) {
       setName(organization.name);

@@ -76,7 +76,7 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
     meta: [
       { charSet: "utf-8" },
       { name: "viewport", content: "width=device-width, initial-scale=1" },
-      // Static app title — individual pages no longer override it.
+      // Static app title - individual pages no longer override it.
       { title: "Founder Calendar" },
       {
         name: "description",
@@ -107,7 +107,7 @@ function RootShell({ children }: { children: ReactNode }) {
   return (
     <html lang="en" suppressHydrationWarning>
       <head>
-        {/* Apply saved/system theme before first paint — no flash, no mismatch */}
+        {/* Apply saved/system theme before first paint - no flash, no mismatch */}
         <script dangerouslySetInnerHTML={{ __html: themeInitScript }} />
         <HeadContent />
       </head>

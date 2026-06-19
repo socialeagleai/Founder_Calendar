@@ -82,7 +82,7 @@ export function downloadBoardPdf(board: BoardDetail) {
 
     if (!box.content && tasks.length === 0) {
       newPageIfNeeded(15);
-      doc.text("—", margin, y);
+      doc.text("-", margin, y);
       y += 15;
     }
     y += 16; // gap between boxes

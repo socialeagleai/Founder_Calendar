@@ -110,7 +110,7 @@ function LogoBadge({ className = "" }: { className?: string }) {
     >
       <img
         src="/social-eagle-logo.png"
-        alt="Social Eagle — learn. build. operate"
+        alt="Social Eagle - learn. build. operate"
         className="h-full w-full object-contain"
       />
     </div>
@@ -158,7 +158,7 @@ export function AuthLayout({ children }: { children: React.ReactNode }) {
         </motion.div>
 
         <div className="absolute bottom-10 left-20 text-xs text-primary-foreground/70">
-          © {new Date().getFullYear()} Social Eagle — learn. build. operate
+          © {new Date().getFullYear()} Social Eagle - learn. build. operate
         </div>
       </div>
 

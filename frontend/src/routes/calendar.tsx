@@ -7,7 +7,7 @@ import { useStore } from "@/lib/store";
 import { format, parseISO } from "date-fns";
 
 export const Route = createFileRoute("/calendar")({
-  // A `date` (YYYY-MM-DD) opens that day's drawer — used by global search.
+  // A `date` (YYYY-MM-DD) opens that day's drawer - used by global search.
   validateSearch: (search: Record<string, unknown>): { date?: string } => ({
     date: typeof search.date === "string" ? search.date : undefined,
   }),

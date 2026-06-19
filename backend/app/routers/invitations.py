@@ -38,7 +38,7 @@ def list_invitations(
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> list[InvitationOut]:
-    """Pending invitations for the current user — shown in the notification bell."""
+    """Pending invitations for the current user - shown in the notification bell."""
     out: list[InvitationOut] = []
     for m in _pending_invites(db, user):
         org = db.get(Organization, m.organization_id)

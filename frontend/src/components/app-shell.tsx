@@ -61,7 +61,7 @@ export function AppShell({ children }: { children: ReactNode }) {
   const [mobileOpen, setMobileOpen] = useState(false);
 
   // Poll the notification bell (invites, leave requests, messages) so it updates
-  // without a manual reload — including cross-user events from other people.
+  // without a manual reload - including cross-user events from other people.
   useEffect(() => {
     if (!currentUser) return;
     void refreshBell();

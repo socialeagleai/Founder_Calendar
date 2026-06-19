@@ -80,7 +80,7 @@ class Organization(Base):
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     description: Mapped[str] = mapped_column(Text, default="", nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
-    # Not unique — a user can own several organizations.
+    # Not unique - a user can own several organizations.
     owner_id: Mapped[str] = mapped_column(
         ForeignKey("users.id", ondelete="CASCADE"), index=True, nullable=False
     )
@@ -197,7 +197,7 @@ class BoardBox(Base):
 
 
 class Template(Base):
-    """A reusable, user-authored template — either for a Board or a Meeting.
+    """A reusable, user-authored template - either for a Board or a Meeting.
 
     `kind` selects the shape of the opaque JSON `data` payload:
       - board:   { "boxes": [{ id, title, content, x, y, width, height, color }] }

@@ -86,7 +86,7 @@ class OrganizationOut(CamelModel):
 
 
 class OrgMembershipOut(CamelModel):
-    """An organization the user belongs to, with their role in it — powers the
+    """An organization the user belongs to, with their role in it - powers the
     navbar org switcher."""
 
     id: str
@@ -109,7 +109,7 @@ class InvitationOut(CamelModel):
 
 
 class LeaveRequestOut(CamelModel):
-    """A member's request to leave one of the owner's organizations — shown to
+    """A member's request to leave one of the owner's organizations - shown to
     the owner in the notification bell. `id` is the TeamMember id."""
 
     id: str
@@ -178,6 +178,7 @@ class NoteOut(CamelModel):
     date: str
     content: str
     creator_name: str | None = None
+    mine: bool = False  # created by the current user
     created_at: datetime
     updated_at: datetime
 
@@ -247,6 +248,7 @@ class BoardDetailOut(CamelModel):
     id: str
     date: str
     title: str
+    mine: bool = False  # created by the current user
     created_at: datetime
     updated_at: datetime
     boxes: list[BoxOut]
@@ -315,6 +317,7 @@ class MeetingDetailOut(CamelModel):
     date: str
     schedule: Schedule
     duration: str
+    mine: bool = False  # created by the current user
     sections: list[MeetingSectionModel]
     created_at: datetime
     updated_at: datetime
@@ -327,7 +330,7 @@ TemplateKind = Literal["board", "meeting"]
 class TemplateCreateRequest(BaseModel):
     kind: TemplateKind
     name: str = Field(min_length=1)
-    # Opaque payload — shape depends on `kind` (see models.Template).
+    # Opaque payload - shape depends on `kind` (see models.Template).
     data: dict = {}
 
 

@@ -231,7 +231,7 @@ function EditAccessDialog({ member }: { member: TeamMember }) {
       </DialogTrigger>
       <DialogContent className="max-h-[88vh] overflow-y-auto">
         <DialogHeader>
-          <DialogTitle>Page access — {member.name}</DialogTitle>
+          <DialogTitle>Page access - {member.name}</DialogTitle>
           <DialogDescription>Control which pages {member.name} can open.</DialogDescription>
         </DialogHeader>
         <PageAccessGrid value={perms} onChange={setPerms} />

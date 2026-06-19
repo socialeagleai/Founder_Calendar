@@ -30,7 +30,7 @@ function ResetPasswordPage() {
     setLoading(true);
     try {
       await api.resetPassword(token, password);
-      toast.success("Password updated — please sign in");
+      toast.success("Password updated - please sign in");
       navigate({ to: "/login" });
     } catch (err) {
       toast.error(err instanceof ApiError ? err.message : "Could not reset password");

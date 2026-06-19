@@ -14,7 +14,7 @@ bearer_scheme = HTTPBearer(auto_error=False)
 def orgs_for_user(db: Session, user: User) -> list[Organization]:
     """Every organization the user actively belongs to: ones they own plus ones
     where they have an *accepted* (Active) membership. Pending invites are not
-    included — those are surfaced separately for accept/decline."""
+    included - those are surfaced separately for accept/decline."""
     result: dict[str, Organization] = {}
     for o in db.query(Organization).filter(Organization.owner_id == user.id).all():
         result[o.id] = o
@@ -120,6 +120,54 @@ def require_page_edit(page_key: str) -> Callable[..., None]:
             )
 
     return _dep
+
+
+def page_access_level(db: Session, org: Organization, user: User, page_key: str) -> str:
+    """The caller's access level for a page: "edit", "view", or "none". Mirrors
+    the frontend levelFor: owners get edit; Settings is always edit and
+    Organization always view; otherwise the member's granted permission."""
+    if org.owner_id == user.id:
+        return "edit"
+    member = _member_of(db, org, user)
+    if member is None:
+        return "edit"
+    if page_key == "settings":
+        return "edit"
+    if page_key == "organization":
+        return "view"
+    return (member.permissions or {}).get(page_key) or "none"
+
+
+def require_page_access(page_key: str) -> Callable[..., str]:
+    """Build a dependency that requires at least VIEW access to a page and returns
+    the level ("view" | "edit"). In this model "view" lets a member manage their
+    OWN items, while "edit" also lets them change items owned by other people.
+    Endpoints combine the returned level with item ownership (see
+    `ensure_owns_or_edit`)."""
+
+    def _dep(
+        user: User = Depends(get_current_user),
+        org: Organization = Depends(get_current_org),
+        db: Session = Depends(get_db),
+    ) -> str:
+        level = page_access_level(db, org, user, page_key)
+        if level == "none":
+            raise HTTPException(
+                status.HTTP_403_FORBIDDEN, f"You don't have access to {page_key}."
+            )
+        return level
+
+    return _dep
+
+
+def ensure_owns_or_edit(level: str, item_user_id: str | None, user: User, what: str) -> None:
+    """Block changing someone else's item unless the caller has edit access. With
+    only view access a member may change their own items but not others'."""
+    if item_user_id != user.id and level != "edit":
+        raise HTTPException(
+            status.HTTP_403_FORBIDDEN,
+            f"You can only change your own {what}. Edit access is needed to change others'.",
+        )
 
 
 def require_owner(

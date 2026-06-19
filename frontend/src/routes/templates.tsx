@@ -49,7 +49,7 @@ import {
 } from "@/components/ui/alert-dialog";
 
 export const Route = createFileRoute("/templates")({
-  // `board` holds a board-template id to edit, or "new" to author a fresh one —
+  // `board` holds a board-template id to edit, or "new" to author a fresh one -
   // it opens the full-page board canvas (same as a real board).
   validateSearch: (search: Record<string, unknown>): { board?: string } => ({
     board: typeof search.board === "string" ? search.board : undefined,
@@ -263,7 +263,8 @@ function TemplatesPage() {
   const boardTemplates = templates.filter((t) => t.kind === "board");
   const meetingTemplates = templates.filter((t) => t.kind === "meeting");
 
-  const canEdit = usePageAccess("templates") === "edit";
+  // Templates are private to each member, so view access is enough to manage them.
+  const canEdit = usePageAccess("templates") !== "none";
   const [tab, setTab] = useState<"board" | "meeting">("board");
   const [meetingOpen, setMeetingOpen] = useState(false);
   const [editing, setEditing] = useState<Template | null>(null);

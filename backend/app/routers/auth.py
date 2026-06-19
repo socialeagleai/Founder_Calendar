@@ -90,7 +90,7 @@ def google_login(body: GoogleLoginRequest, db: Session = Depends(get_db)) -> Aut
             # Could not reach Google to fetch signing certs, etc.
             raise HTTPException(
                 status.HTTP_503_SERVICE_UNAVAILABLE,
-                "Could not verify Google token — try again",
+                "Could not verify Google token - try again",
             ) from exc
         email = info.get("email")
         name = info.get("name") or (email.split("@")[0] if email else "Google User")
@@ -186,7 +186,7 @@ def forgot_password(body: ForgotPasswordRequest, db: Session = Depends(get_db)) 
         html, text = reset_password_email(user.name, link, settings.reset_token_expire_minutes)
         sent = send_email(user.email, "Reset your Founder Calendar password", html, text)
         if not sent:
-            # SMTP not configured / failed — log the link so the flow still works.
+            # SMTP not configured / failed - log the link so the flow still works.
             logger.info("Password reset link for %s: %s", user.email, link)
     return MessageResponse(
         detail="If an account exists for that email, a password reset link has been sent."

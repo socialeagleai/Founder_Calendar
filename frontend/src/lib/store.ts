@@ -31,7 +31,7 @@ export interface Organization {
   ownerId: string;
 }
 
-/** An org the user belongs to, with their role in it — powers the switcher. */
+/** An org the user belongs to, with their role in it - powers the switcher. */
 export interface OrgMembership {
   id: string;
   name: string;
@@ -84,6 +84,7 @@ export interface Note {
   date: string; // YYYY-MM-DD
   content: string;
   creatorName?: string | null; // who added it (shown on the calendar)
+  mine?: boolean; // created by the current user
   createdAt: string;
   updatedAt: string;
 }
@@ -121,6 +122,7 @@ export interface BoardDetail {
   id: string;
   date: string;
   title: string;
+  mine?: boolean; // created by the current user
   createdAt: string;
   updatedAt: string;
   boxes: Box[];
@@ -162,6 +164,7 @@ export interface MeetingDetail {
   date: string; // YYYY-MM-DD
   schedule: Schedule;
   duration: string;
+  mine?: boolean; // created by the current user
   sections: MeetingSection[];
   createdAt: string;
   updatedAt: string;
@@ -282,7 +285,7 @@ interface AppState {
   acceptLeaveRequest: (memberId: string) => Promise<void>;
   declineLeaveRequest: (memberId: string) => Promise<void>;
 
-  // Notification bell — light poll of invites + leave requests + messages.
+  // Notification bell - light poll of invites + leave requests + messages.
   refreshBell: () => Promise<void>;
   dismissNotification: (id: string) => Promise<void>;
 
@@ -337,7 +340,7 @@ export const useStore = create<AppState>((set, get) => ({
       set({ currentUser: user });
       await get().refreshOrgData();
     } catch {
-      // Token invalid/expired — clear the session.
+      // Token invalid/expired - clear the session.
       setToken(null);
       setActiveOrgId(null);
       set({
@@ -663,7 +666,7 @@ export const useStore = create<AppState>((set, get) => ({
   },
 
   acceptLeaveRequest: async (memberId) => {
-    // Owner approves — the member is removed from the organization.
+    // Owner approves - the member is removed from the organization.
     await api.acceptLeaveRequest(memberId);
     set((s) => ({
       leaveRequests: s.leaveRequests.filter((r) => r.id !== memberId),
@@ -679,7 +682,7 @@ export const useStore = create<AppState>((set, get) => ({
     }));
   },
 
-  // Light refresh of everything shown in the bell — polled on an interval so
+  // Light refresh of everything shown in the bell - polled on an interval so
   // invites, leave requests and messages appear without a manual reload.
   refreshBell: async () => {
     const [invitations, leaveRequests, notifications, team, myOrgs] = await Promise.all([
@@ -697,7 +700,7 @@ export const useStore = create<AppState>((set, get) => ({
       myOrgs: myOrgs ?? s.myOrgs,
     }));
     // If our active org vanished (e.g. an owner approved our leave), reconcile
-    // the whole session so we land on another org — or onboarding if we have none.
+    // the whole session so we land on another org - or onboarding if we have none.
     const activeId = getActiveOrgId();
     if (myOrgs && activeId && !myOrgs.some((o) => o.id === activeId)) {
       await get().refreshOrgData();

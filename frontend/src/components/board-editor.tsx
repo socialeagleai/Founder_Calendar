@@ -31,7 +31,7 @@ export function BoardEditor({
   initialMode?: Mode;
 }) {
   const refreshBoards = useStore((s) => s.refreshBoards);
-  // Select the stable array, then filter via useMemo — filtering inside the
+  // Select the stable array, then filter via useMemo - filtering inside the
   // selector returns a new reference each render and triggers an infinite loop.
   const allTemplates = useStore((s) => s.templates);
   const boardTemplates = useMemo(
@@ -42,12 +42,14 @@ export function BoardEditor({
   const [boxes, setBoxes] = useState<Box[]>([]);
   const [title, setTitle] = useState("");
   const [loading, setLoading] = useState(true);
-  const canEdit = usePageAccess("board") === "edit";
-  const [mode, setMode] = useState<Mode>(canEdit ? initialMode : "view");
+  // "edit" access can change anyone's board; "view" can only edit their own.
+  const level = usePageAccess("board");
+  const canEdit = level === "edit" || board?.mine === true;
+  const [mode, setMode] = useState<Mode>("view");
   const readOnly = mode === "view";
 
-  // Follow the mode supplied via the URL (e.g. "Add Board" opens in editor) —
-  // but view-only members are always locked to view.
+  // Follow the mode supplied via the URL (e.g. "Add Board" opens in editor) -
+  // but lock to view when the member can't edit this particular board.
   useEffect(() => {
     setMode(canEdit ? initialMode : "view");
   }, [initialMode, canEdit]);
@@ -194,7 +196,7 @@ export function BoardEditor({
           )}
         </div>
 
-        {/* Templates — drop a saved board template onto this board. */}
+        {/* Templates - drop a saved board template onto this board. */}
         {canEdit && (
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
@@ -209,7 +211,7 @@ export function BoardEditor({
               {boardTemplates.length === 0 ? (
                 <DropdownMenuItem asChild>
                   <Link to="/templates" className="text-muted-foreground">
-                    No templates yet — create one
+                    No templates yet - create one
                   </Link>
                 </DropdownMenuItem>
               ) : (
@@ -230,7 +232,7 @@ export function BoardEditor({
           </DropdownMenu>
         )}
 
-        {/* View / Editor mode toggle — only when the member can edit. */}
+        {/* View / Editor mode toggle - only when the member can edit. */}
         {canEdit && (
           <div className="inline-flex items-center rounded-lg border border-border bg-secondary/50 p-0.5 text-sm">
             <button

@@ -4,13 +4,15 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
 
 from ..database import get_db
-from ..deps import get_current_org, get_current_user, require_page_edit
+from ..deps import get_current_org, get_current_user, require_page_access
 from ..models import Organization, Template, User
 from ..schemas import TemplateCreateRequest, TemplateKind, TemplateOut, TemplateUpdateRequest
 
 router = APIRouter(prefix="/api/templates", tags=["templates"])
 
-require_templates_edit = require_page_edit("templates")
+# Templates are private to each member, so any access (view or edit) lets them
+# manage their own; there are no "other people's templates" to gate.
+require_templates_access = require_page_access("templates")
 
 
 def _uid() -> str:
@@ -28,7 +30,7 @@ def _section(title: str, type_: str, *, body: str = "", items: list[tuple[str, i
 
 
 def _default_meeting_templates() -> list[dict]:
-    """The starter meeting templates every organization gets — editable afterwards."""
+    """The starter meeting templates every organization gets - editable afterwards."""
     return [
         {
             "name": "Leadership Meeting",
@@ -105,7 +107,7 @@ def _default_meeting_templates() -> list[dict]:
 
 def _seed_defaults_if_empty(db: Session, org: Organization, user: User) -> None:
     """Give each member their own starter meeting templates the first time they
-    open My Templates — templates are private per user."""
+    open My Templates - templates are private per user."""
     exists = (
         db.query(Template.id)
         .filter(Template.organization_id == org.id, Template.user_id == user.id)
@@ -161,7 +163,7 @@ def list_templates(
     "",
     response_model=TemplateOut,
     status_code=status.HTTP_201_CREATED,
-    dependencies=[Depends(require_templates_edit)],
+    dependencies=[Depends(require_templates_access)],
 )
 def create_template(
     body: TemplateCreateRequest,
@@ -185,7 +187,7 @@ def create_template(
 @router.patch(
     "/{template_id}",
     response_model=TemplateOut,
-    dependencies=[Depends(require_templates_edit)],
+    dependencies=[Depends(require_templates_access)],
 )
 def update_template(
     template_id: str,
@@ -207,7 +209,7 @@ def update_template(
 @router.delete(
     "/{template_id}",
     status_code=status.HTTP_204_NO_CONTENT,
-    dependencies=[Depends(require_templates_edit)],
+    dependencies=[Depends(require_templates_access)],
 )
 def delete_template(
     template_id: str,

@@ -5,7 +5,12 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
 
 from ..database import get_db
-from ..deps import get_current_org, get_current_user, require_page_edit
+from ..deps import (
+    ensure_owns_or_edit,
+    get_current_org,
+    get_current_user,
+    require_page_access,
+)
 from ..models import Board, BoardBox, Organization, TeamMember, User
 from ..schemas import (
     BoardCopyRequest,
@@ -21,8 +26,9 @@ from ..schemas import (
 
 router = APIRouter(prefix="/api", tags=["boards"])
 
-# Boards (and their boxes) are edited from the Board page.
-require_board_edit = require_page_edit("board")
+# Board page access. "view" lets a member manage their own boards; "edit" also
+# lets them change boards created by other members.
+require_board_access = require_page_access("board")
 
 
 def _get_board(db: Session, org: Organization, board_id: str) -> Board:
@@ -46,6 +52,11 @@ def _get_box(db: Session, org: Organization, box_id: str) -> BoardBox:
     if not box:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Box not found")
     return box
+
+
+def _detail(board: Board, user: User) -> Board:
+    board.mine = board.user_id == user.id  # type: ignore[attr-defined]
+    return board
 
 
 def _summary(board: Board) -> BoardSummaryOut:
@@ -89,7 +100,7 @@ def list_boards(
     "/boards",
     response_model=BoardDetailOut,
     status_code=status.HTTP_201_CREATED,
-    dependencies=[Depends(require_board_edit)],
+    dependencies=[Depends(require_board_access)],
 )
 def create_board(
     body: BoardCreateRequest,
@@ -106,63 +117,61 @@ def create_board(
     db.add(board)
     db.commit()
     db.refresh(board)
-    return board
+    return _detail(board, user)
 
 
 @router.get("/boards/{board_id}", response_model=BoardDetailOut)
 def get_board(
     board_id: str,
     org: Organization = Depends(get_current_org),
+    user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> Board:
-    return _get_board(db, org, board_id)
+    return _detail(_get_board(db, org, board_id), user)
 
 
-@router.patch(
-    "/boards/{board_id}",
-    response_model=BoardSummaryOut,
-    dependencies=[Depends(require_board_edit)],
-)
+@router.patch("/boards/{board_id}", response_model=BoardSummaryOut)
 def rename_board(
     board_id: str,
     body: BoardUpdateRequest,
     org: Organization = Depends(get_current_org),
+    user: User = Depends(get_current_user),
+    level: str = Depends(require_board_access),
     db: Session = Depends(get_db),
 ) -> BoardSummaryOut:
     board = _get_board(db, org, board_id)
+    ensure_owns_or_edit(level, board.user_id, user, "boards")
     board.title = body.title.strip()
     db.commit()
     db.refresh(board)
     return _summary(board)
 
 
-@router.delete(
-    "/boards/{board_id}",
-    status_code=status.HTTP_204_NO_CONTENT,
-    dependencies=[Depends(require_board_edit)],
-)
+@router.delete("/boards/{board_id}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_board(
     board_id: str,
     org: Organization = Depends(get_current_org),
+    user: User = Depends(get_current_user),
+    level: str = Depends(require_board_access),
     db: Session = Depends(get_db),
 ) -> None:
     board = _get_board(db, org, board_id)
+    ensure_owns_or_edit(level, board.user_id, user, "boards")
     db.delete(board)
     db.commit()
     return None
 
 
-@router.post(
-    "/boards/{board_id}/share",
-    response_model=BoardShareOut,
-    dependencies=[Depends(require_board_edit)],
-)
+@router.post("/boards/{board_id}/share", response_model=BoardShareOut)
 def share_board(
     board_id: str,
     org: Organization = Depends(get_current_org),
+    user: User = Depends(get_current_user),
+    level: str = Depends(require_board_access),
     db: Session = Depends(get_db),
 ) -> BoardShareOut:
     board = _get_board(db, org, board_id)
+    ensure_owns_or_edit(level, board.user_id, user, "boards")
     if not board.share_token:
         board.share_token = uuid.uuid4().hex
         db.commit()
@@ -174,7 +183,7 @@ def share_board(
     "/boards/{board_id}/copy",
     response_model=BoardSummaryOut,
     status_code=status.HTTP_201_CREATED,
-    dependencies=[Depends(require_board_edit)],
+    dependencies=[Depends(require_board_access)],
 )
 def copy_board(
     board_id: str,
@@ -214,7 +223,7 @@ def get_shared_board(
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> Board:
-    """View a board shared by link — only allowed if the viewer is the owner or a
+    """View a board shared by link - only allowed if the viewer is the owner or a
     member of the board's organization (by email)."""
     board = db.query(Board).filter(Board.share_token == token).first()
     if not board:
@@ -234,7 +243,7 @@ def get_shared_board(
             status.HTTP_403_FORBIDDEN,
             "You don't have access to this board. Ask the owner to add you to their organization.",
         )
-    return board
+    return _detail(board, user)
 
 
 # ---------- Boxes ----------
@@ -242,15 +251,17 @@ def get_shared_board(
     "/boards/{board_id}/boxes",
     response_model=BoxOut,
     status_code=status.HTTP_201_CREATED,
-    dependencies=[Depends(require_board_edit)],
 )
 def add_box(
     board_id: str,
     body: BoxCreateRequest,
     org: Organization = Depends(get_current_org),
+    user: User = Depends(get_current_user),
+    level: str = Depends(require_board_access),
     db: Session = Depends(get_db),
 ) -> BoardBox:
     board = _get_board(db, org, board_id)
+    ensure_owns_or_edit(level, board.user_id, user, "boards")
     box = BoardBox(
         board_id=board.id,
         title=body.title,
@@ -268,14 +279,17 @@ def add_box(
     return box
 
 
-@router.patch("/boxes/{box_id}", response_model=BoxOut, dependencies=[Depends(require_board_edit)])
+@router.patch("/boxes/{box_id}", response_model=BoxOut)
 def update_box(
     box_id: str,
     body: BoxUpdateRequest,
     org: Organization = Depends(get_current_org),
+    user: User = Depends(get_current_user),
+    level: str = Depends(require_board_access),
     db: Session = Depends(get_db),
 ) -> BoardBox:
     box = _get_box(db, org, box_id)
+    ensure_owns_or_edit(level, box.board.user_id, user, "boards")
     for field, value in body.model_dump(exclude_unset=True).items():
         setattr(box, field, value)
     db.commit()
@@ -283,17 +297,16 @@ def update_box(
     return box
 
 
-@router.delete(
-    "/boxes/{box_id}",
-    status_code=status.HTTP_204_NO_CONTENT,
-    dependencies=[Depends(require_board_edit)],
-)
+@router.delete("/boxes/{box_id}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_box(
     box_id: str,
     org: Organization = Depends(get_current_org),
+    user: User = Depends(get_current_user),
+    level: str = Depends(require_board_access),
     db: Session = Depends(get_db),
 ) -> None:
     box = _get_box(db, org, box_id)
+    ensure_owns_or_edit(level, box.board.user_id, user, "boards")
     db.delete(box)
     db.commit()
     return None

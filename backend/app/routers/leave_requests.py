@@ -78,14 +78,14 @@ def accept_leave_request(
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> None:
-    """Owner approves the request — the member is removed from the organization."""
+    """Owner approves the request - the member is removed from the organization."""
     member = _get_request(db, user, member_id)
     org = db.get(Organization, member.organization_id)
     org_name = org.name if org else "the organization"
     _notify_member(
         db,
         member,
-        f"Your request to leave {org_name} was approved — you've been removed.",
+        f"Your request to leave {org_name} was approved - you've been removed.",
     )
     db.delete(member)
     db.commit()
@@ -98,7 +98,7 @@ def decline_leave_request(
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> MessageResponse:
-    """Owner declines — the member stays and is restored to Active."""
+    """Owner declines - the member stays and is restored to Active."""
     member = _get_request(db, user, member_id)
     member.status = "Active"
     org = db.get(Organization, member.organization_id)
@@ -106,7 +106,7 @@ def decline_leave_request(
     _notify_member(
         db,
         member,
-        f"Your request to leave {org_name} was declined — you're still a member.",
+        f"Your request to leave {org_name} was declined - you're still a member.",
     )
     db.commit()
     return MessageResponse(detail="Leave request declined.")

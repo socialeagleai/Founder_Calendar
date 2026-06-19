@@ -29,13 +29,17 @@ export function NotesDrawer({ date, onClose }: Props) {
     createBoard,
     createMeeting,
   } = useStore();
-  const canEditNotes = usePageAccess("calendar") === "edit";
+  // "view" lets a member add and manage their OWN items; "edit" also lets them
+  // change items created by other members.
+  const calendarLevel = usePageAccess("calendar");
+  const canAddNotes = calendarLevel !== "none";
+  const canEditNote = (n: Note) => calendarLevel === "edit" || n.mine === true;
   const boardAccess = usePageAccess("board");
   const canViewBoards = boardAccess !== "none";
-  const canEditBoards = boardAccess === "edit";
+  const canAddBoards = boardAccess !== "none";
   const meetingAccess = usePageAccess("meeting");
   const canViewMeetings = meetingAccess !== "none";
-  const canEditMeetings = meetingAccess === "edit";
+  const canAddMeetings = meetingAccess !== "none";
   const dateKey = date ? format(date, "yyyy-MM-dd") : "";
   const dayNotes = notes.filter((n) => n.date === dateKey);
   const dayMeetings = canViewMeetings ? calendarMeetings.filter((m) => m.date === dateKey) : [];
@@ -166,8 +170,8 @@ export function NotesDrawer({ date, onClose }: Props) {
                     <button
                       type="button"
                       onClick={startAdd}
-                      disabled={!canEditNotes}
-                      title={canEditNotes ? "Add a note" : undefined}
+                      disabled={!canAddNotes}
+                      title={canAddNotes ? "Add a note" : undefined}
                       className="group flex w-full flex-col items-center justify-center rounded-2xl py-12 text-center transition-colors hover:bg-accent/40 disabled:cursor-default disabled:hover:bg-transparent"
                     >
                       <div className="grid h-14 w-14 place-items-center rounded-2xl bg-accent transition-all group-hover:scale-105 group-enabled:group-hover:bg-primary group-enabled:group-hover:text-primary-foreground">
@@ -175,9 +179,9 @@ export function NotesDrawer({ date, onClose }: Props) {
                       </div>
                       <p className="mt-4 text-sm font-medium">No notes for this day</p>
                       <p className="mt-1 text-xs text-muted-foreground">
-                        {canEditNotes
+                        {canAddNotes
                           ? "What needs to happen on this day?"
-                          : "View only — no notes yet"}
+                          : "View only - no notes yet"}
                       </p>
                     </button>
                   )}
@@ -201,7 +205,7 @@ export function NotesDrawer({ date, onClose }: Props) {
                           </span>
                           <div className="flex min-w-0 items-center gap-2">
                             <CreatorBadge name={n.creatorName} />
-                            {canEditNotes && (
+                            {canEditNote(n) && (
                               <div className="flex shrink-0 gap-1 opacity-0 transition-opacity group-hover:opacity-100">
                                 <button
                                   onClick={() => startEdit(n)}
@@ -300,9 +304,9 @@ export function NotesDrawer({ date, onClose }: Props) {
                 )}
               </div>
 
-              {!adding && !editingId && (canEditNotes || canEditBoards || canEditMeetings) && (
+              {!adding && !editingId && (canAddNotes || canAddBoards || canAddMeetings) && (
                 <div className="space-y-2 border-t border-border bg-secondary/40 px-6 py-4">
-                  {canEditNotes && (
+                  {canAddNotes && (
                     <Button
                       onClick={startAdd}
                       className="h-11 w-full bg-primary text-primary-foreground hover:bg-primary-dark"
@@ -310,12 +314,12 @@ export function NotesDrawer({ date, onClose }: Props) {
                       <Plus className="h-4 w-4" /> Add Note
                     </Button>
                   )}
-                  {canEditBoards && (
+                  {canAddBoards && (
                     <Button variant="outline" onClick={goToBoard} className="h-11 w-full">
                       <LayoutGrid className="h-4 w-4" /> Add Board
                     </Button>
                   )}
-                  {canEditMeetings && (
+                  {canAddMeetings && (
                     <Button variant="outline" onClick={addMeeting} className="h-11 w-full">
                       <CalendarClock className="h-4 w-4" /> Add Meeting
                     </Button>
