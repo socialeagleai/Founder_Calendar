@@ -52,6 +52,9 @@ services:
       args:
         VITE_API_URL: "https://backend.fc.socialeagle.ai"
         VITE_GOOGLE_CLIENT_ID: "815688246946-fc023atjo0dkeo2pqua2difekf3c11qa.apps.googleusercontent.com"
+        # Show the real "Sign in with Google" button. Requires the OAuth client's
+        # Authorized JavaScript origins to include https://fc.socialeagle.ai.
+        VITE_GOOGLE_SIGNIN: "true"
     container_name: founder_cal_frontend
     restart: unless-stopped
     depends_on:
