@@ -36,7 +36,9 @@ services:
         condition: service_healthy
     environment:
       DATABASE_URL: postgresql+psycopg2://founder:founder_pass@db:5432/founder_calendar
-      JWT_SECRET: "9c01f6c72423f38bad59e5536d2150a1c47e9862849841b835eff922fc93a17c"
+      # Secret comes from the untracked /root/Founder_Calendar/.env (not in git).
+      # Deploy fails fast if it isn't set.
+      JWT_SECRET: "${JWT_SECRET:?JWT_SECRET must be set in /root/Founder_Calendar/.env}"
       JWT_ALGORITHM: HS256
       ACCESS_TOKEN_EXPIRE_MINUTES: "10080"
       GOOGLE_CLIENT_ID: "815688246946-fc023atjo0dkeo2pqua2difekf3c11qa.apps.googleusercontent.com"
