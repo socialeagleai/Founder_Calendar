@@ -10,6 +10,7 @@ from .routers import (
     auth,
     boards,
     invitations,
+    leave_requests,
     meetings,
     notes,
     organization,
@@ -108,6 +109,7 @@ app.include_router(auth.router)
 app.include_router(organization.router)
 app.include_router(team.router)
 app.include_router(invitations.router)
+app.include_router(leave_requests.router)
 app.include_router(notes.router)
 app.include_router(boards.router)
 app.include_router(meetings.router)

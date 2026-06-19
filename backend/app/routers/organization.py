@@ -12,6 +12,7 @@ from ..deps import (
 )
 from ..models import Organization, TeamMember, User
 from ..schemas import (
+    MessageResponse,
     OrganizationOut,
     OrgCreateRequest,
     OrgMembershipOut,
@@ -105,6 +106,32 @@ def update_organization(
     db.commit()
     db.refresh(org)
     return org
+
+
+@router.post("/leave", response_model=MessageResponse)
+def leave_organization(
+    org: Organization = Depends(get_current_org),
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> MessageResponse:
+    """A member requests to leave the active organization. This flags their
+    membership as LeaveRequested; the owner approves the removal from their
+    notification bell."""
+    if org.owner_id == user.id:
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            "The owner can't leave their own organization — delete it instead.",
+        )
+    member = (
+        db.query(TeamMember)
+        .filter(TeamMember.organization_id == org.id, TeamMember.email == user.email)
+        .first()
+    )
+    if member is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "You're not a member of this organization")
+    member.status = "LeaveRequested"
+    db.commit()
+    return MessageResponse(detail="Your request to leave has been sent to the owner.")
 
 
 @router.delete(

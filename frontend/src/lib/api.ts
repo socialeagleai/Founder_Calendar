@@ -18,6 +18,7 @@ import type {
   BoardSummary,
   Box,
   Invitation,
+  LeaveRequest,
   MeetingDetail,
   MeetingInput,
   MeetingSummary,
@@ -164,6 +165,10 @@ export const api = {
   createOrg: (name: string, description: string) =>
     request<Organization>("/api/organization", { method: "POST", body: { name, description } }),
 
+  // Member requests to leave the active organization (owner approves).
+  leaveOrganization: () =>
+    request<{ detail: string }>("/api/organization/leave", { method: "POST" }),
+
   updateOrg: (name: string, description: string) =>
     request<Organization>("/api/organization", { method: "PATCH", body: { name, description } }),
 
@@ -191,6 +196,15 @@ export const api = {
 
   declineInvitation: (id: string) =>
     request<void>(`/api/invitations/${id}/decline`, { method: "POST" }),
+
+  // ---- leave requests (owner-facing) ----
+  getLeaveRequests: () => request<LeaveRequest[]>("/api/leave-requests"),
+
+  acceptLeaveRequest: (memberId: string) =>
+    request<void>(`/api/leave-requests/${memberId}/accept`, { method: "POST" }),
+
+  declineLeaveRequest: (memberId: string) =>
+    request<void>(`/api/leave-requests/${memberId}/decline`, { method: "POST" }),
 
   // ---- notes ----
   getNotes: () => request<Note[]>("/api/notes"),

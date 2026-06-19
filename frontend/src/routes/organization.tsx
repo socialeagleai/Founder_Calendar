@@ -7,7 +7,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
 import { format, parseISO } from "date-fns";
-import { Building2, Calendar, Users, Trash2, Check, Plus } from "lucide-react";
+import { Building2, Calendar, Users, Trash2, Check, Plus, LogOut } from "lucide-react";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import {
@@ -37,11 +37,27 @@ export const Route = createFileRoute("/organization")({
 
 function OrgPage() {
   const navigate = useNavigate();
-  const { organization, team, updateOrg, deleteOrg } = useStore();
+  const { organization, team, updateOrg, deleteOrg, leaveOrg } = useStore();
+  const currentUser = useStore((s) => s.currentUser);
   const canEdit = usePageAccess("organization") === "edit";
   const isOwner = useStore((s) => s.access?.isOwner ?? true);
   const [name, setName] = useState(organization?.name ?? "");
   const [desc, setDesc] = useState(organization?.description ?? "");
+  const [leaveRequested, setLeaveRequested] = useState(false);
+
+  // Whether this member already has a pending leave request in this org.
+  const myMembership = team.find((m) => m.email === currentUser?.email);
+  const pendingLeave = leaveRequested || myMembership?.status === "LeaveRequested";
+
+  const handleLeave = async () => {
+    try {
+      await leaveOrg();
+      setLeaveRequested(true);
+      toast.success("Leave request sent to the owner");
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Could not send leave request");
+    }
+  };
 
   // Org loads asynchronously after mount — sync the form once it arrives.
   useEffect(() => {
@@ -166,6 +182,53 @@ function OrgPage() {
                   </AlertDialogFooter>
                 </AlertDialogContent>
               </AlertDialog>
+            </div>
+          )}
+
+          {/* Members (non-owners) can request to leave the organization. */}
+          {!isOwner && (
+            <div className="rounded-2xl border border-border bg-card p-6 shadow-soft">
+              <h3 className="text-sm font-bold uppercase tracking-widest text-muted-foreground">
+                Membership
+              </h3>
+              {pendingLeave ? (
+                <p className="mt-2 text-sm text-muted-foreground">
+                  Your request to leave <span className="font-medium">{organization.name}</span> is
+                  pending the owner's approval.
+                </p>
+              ) : (
+                <>
+                  <p className="mt-2 text-sm text-muted-foreground">
+                    Leaving sends a request to the organization owner. You'll be removed once they
+                    approve it.
+                  </p>
+                  <AlertDialog>
+                    <AlertDialogTrigger asChild>
+                      <Button variant="outline" className="mt-4">
+                        <LogOut className="h-4 w-4" /> Leave Company
+                      </Button>
+                    </AlertDialogTrigger>
+                    <AlertDialogContent>
+                      <AlertDialogHeader>
+                        <AlertDialogTitle>Leave {organization.name}?</AlertDialogTitle>
+                        <AlertDialogDescription>
+                          This sends a request to the owner. Once they approve it, you'll lose
+                          access to this organization.
+                        </AlertDialogDescription>
+                      </AlertDialogHeader>
+                      <AlertDialogFooter>
+                        <AlertDialogCancel>Cancel</AlertDialogCancel>
+                        <AlertDialogAction
+                          onClick={handleLeave}
+                          className="bg-primary text-primary-foreground hover:bg-primary-dark"
+                        >
+                          Send leave request
+                        </AlertDialogAction>
+                      </AlertDialogFooter>
+                    </AlertDialogContent>
+                  </AlertDialog>
+                </>
+              )}
             </div>
           )}
         </div>

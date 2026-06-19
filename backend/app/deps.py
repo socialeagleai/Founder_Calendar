@@ -18,10 +18,13 @@ def orgs_for_user(db: Session, user: User) -> list[Organization]:
     result: dict[str, Organization] = {}
     for o in db.query(Organization).filter(Organization.owner_id == user.id).all():
         result[o.id] = o
+    # A member keeps access until the owner approves their leave request, so
+    # treat anything that isn't a pending invite (Active or LeaveRequested) as
+    # belonging to the org.
     member_org_ids = [
         m.organization_id
         for m in db.query(TeamMember)
-        .filter(TeamMember.email == user.email, TeamMember.status == "Active")
+        .filter(TeamMember.email == user.email, TeamMember.status != "Invited")
         .all()
     ]
     if member_org_ids:

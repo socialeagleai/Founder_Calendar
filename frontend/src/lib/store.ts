@@ -51,13 +51,24 @@ export interface Invitation {
   createdAt: string;
 }
 
+export type MemberStatus = "Active" | "Invited" | "LeaveRequested";
+
 export interface TeamMember {
   id: string;
   name: string;
   email: string;
   role: Role;
-  status: "Active" | "Invited";
+  status: MemberStatus;
   permissions: Permissions;
+}
+
+/** A member's request to leave one of the owner's orgs (owner's notification). */
+export interface LeaveRequest {
+  id: string; // the TeamMember id
+  organizationId: string;
+  organizationName: string;
+  memberName: string;
+  memberEmail: string;
 }
 
 export interface Note {
@@ -200,6 +211,8 @@ interface AppState {
   // All orgs the user belongs to (switcher) and pending invites (bell).
   myOrgs: OrgMembership[];
   invitations: Invitation[];
+  // Members asking to leave orgs the current user owns (owner's bell).
+  leaveRequests: LeaveRequest[];
   access: Access | null;
   team: TeamMember[];
   notes: Note[];
@@ -247,11 +260,17 @@ interface AppState {
   updateOrg: (name: string, description: string) => Promise<void>;
   deleteOrg: () => Promise<void>;
   switchOrg: (id: string) => Promise<void>;
+  leaveOrg: () => Promise<void>;
 
   // Invitations
   refreshInvitations: () => Promise<void>;
   acceptInvitation: (id: string) => Promise<void>;
   declineInvitation: (id: string) => Promise<void>;
+
+  // Leave requests (owner-facing)
+  refreshLeaveRequests: () => Promise<void>;
+  acceptLeaveRequest: (memberId: string) => Promise<void>;
+  declineLeaveRequest: (memberId: string) => Promise<void>;
 
   // Team
   inviteMember: (
@@ -280,6 +299,7 @@ export const useStore = create<AppState>((set, get) => ({
   organization: null,
   myOrgs: [],
   invitations: [],
+  leaveRequests: [],
   access: null,
   team: [],
   notes: [],
@@ -311,6 +331,7 @@ export const useStore = create<AppState>((set, get) => ({
         organization: null,
         myOrgs: [],
         invitations: [],
+        leaveRequests: [],
         access: null,
         team: [],
         notes: [],
@@ -354,6 +375,7 @@ export const useStore = create<AppState>((set, get) => ({
         templates: [],
         calendarBoards: [],
         calendarMeetings: [],
+        leaveRequests: [],
       });
       return;
     }
@@ -374,6 +396,7 @@ export const useStore = create<AppState>((set, get) => ({
       templates,
       calendarBoards,
       calendarMeetings,
+      leaveRequests,
     ] = await Promise.all([
       api.getAccess().catch((): Access => ({ isOwner: true, role: "Owner", permissions: {} })),
       api.getOrganization(),
@@ -384,6 +407,7 @@ export const useStore = create<AppState>((set, get) => ({
       api.getTemplates().catch(() => []),
       api.getBoards("org").catch(() => []),
       api.getMeetings("org").catch(() => []),
+      api.getLeaveRequests().catch((): LeaveRequest[] => []),
     ]);
     set({
       access,
@@ -395,6 +419,7 @@ export const useStore = create<AppState>((set, get) => ({
       templates,
       calendarBoards,
       calendarMeetings,
+      leaveRequests,
     });
   },
 
@@ -546,6 +571,7 @@ export const useStore = create<AppState>((set, get) => ({
       organization: null,
       myOrgs: [],
       invitations: [],
+      leaveRequests: [],
       access: null,
       team: [],
       notes: [],
@@ -587,6 +613,11 @@ export const useStore = create<AppState>((set, get) => ({
     await get().refreshOrgData();
   },
 
+  leaveOrg: async () => {
+    // Sends a leave request to the owner; the member keeps access until approved.
+    await api.leaveOrganization();
+  },
+
   acceptInvitation: async (id) => {
     await api.acceptInvitation(id);
     // Joining adds an org to the switcher and clears the invite.
@@ -596,6 +627,27 @@ export const useStore = create<AppState>((set, get) => ({
   declineInvitation: async (id) => {
     await api.declineInvitation(id);
     set((s) => ({ invitations: s.invitations.filter((i) => i.id !== id) }));
+  },
+
+  refreshLeaveRequests: async () => {
+    set({ leaveRequests: await api.getLeaveRequests().catch((): LeaveRequest[] => []) });
+  },
+
+  acceptLeaveRequest: async (memberId) => {
+    // Owner approves — the member is removed from the organization.
+    await api.acceptLeaveRequest(memberId);
+    set((s) => ({
+      leaveRequests: s.leaveRequests.filter((r) => r.id !== memberId),
+      team: s.team.filter((m) => m.id !== memberId),
+    }));
+  },
+
+  declineLeaveRequest: async (memberId) => {
+    await api.declineLeaveRequest(memberId);
+    set((s) => ({
+      leaveRequests: s.leaveRequests.filter((r) => r.id !== memberId),
+      team: s.team.map((m) => (m.id === memberId ? { ...m, status: "Active" } : m)),
+    }));
   },
 
   inviteMember: async (name, email, role, permissions) => {
@@ -644,6 +696,10 @@ export const useCurrentUser = (): ApiUser | null => useStore((s) => s.currentUse
 /** Effective access level for a page key. Owners (and pre-load) get "edit". */
 export const levelFor = (access: Access | null, pageKey: string): "none" | PageAccess => {
   if (!access || access.isOwner) return "edit";
+  // Mandatory pages every member always has: Settings (their own profile) is
+  // editable; Organization is viewable (so they can see it and leave).
+  if (pageKey === "settings") return "edit";
+  if (pageKey === "organization") return "view";
   return access.permissions[pageKey] ?? "none";
 };
 

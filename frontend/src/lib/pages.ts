@@ -5,6 +5,9 @@ export interface PageDef {
   key: string;
   label: string;
   to: string;
+  // Mandatory pages are available to every member and are NOT shown in the
+  // invite/edit access grid (their access can't be revoked).
+  mandatory?: boolean;
 }
 
 export const PAGES: PageDef[] = [
@@ -13,10 +16,13 @@ export const PAGES: PageDef[] = [
   { key: "board", label: "My Board", to: "/board" },
   { key: "meeting", label: "Meetings", to: "/meeting" },
   { key: "templates", label: "My Templates", to: "/templates" },
-  { key: "organization", label: "Organization", to: "/organization" },
+  { key: "organization", label: "Organization", to: "/organization", mandatory: true },
   { key: "team", label: "Team", to: "/team" },
-  { key: "settings", label: "Settings", to: "/settings" },
+  { key: "settings", label: "Settings", to: "/settings", mandatory: true },
 ];
+
+/** Pages whose access can be granted per-member (excludes mandatory ones). */
+export const ASSIGNABLE_PAGES: PageDef[] = PAGES.filter((p) => !p.mandatory);
 
 /** Resolve a route pathname (e.g. "/board") to its page key. */
 export function pageKeyForPath(pathname: string): string | null {

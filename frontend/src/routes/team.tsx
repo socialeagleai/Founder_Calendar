@@ -9,7 +9,7 @@ import {
   type Role,
   type TeamMember,
 } from "@/lib/store";
-import { PAGES } from "@/lib/pages";
+import { ASSIGNABLE_PAGES } from "@/lib/pages";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -69,7 +69,7 @@ function PageAccessGrid({
     <div className="space-y-2">
       <Label>Page access</Label>
       <div className="divide-y divide-border overflow-hidden rounded-xl border border-border">
-        {PAGES.map((p) => {
+        {ASSIGNABLE_PAGES.map((p) => {
           const granted = p.key in value;
           return (
             <div key={p.key} className="flex items-center gap-3 px-3 py-2.5">
@@ -100,6 +100,7 @@ function PageAccessGrid({
       </div>
       <p className="text-[11px] text-muted-foreground">
         Unticked pages are hidden for this member. “View” is read-only; “Edit” allows changes.
+        Organization &amp; Settings are always available to everyone.
       </p>
     </div>
   );
@@ -335,10 +336,12 @@ function TeamPage() {
                       className={
                         m.status === "Active"
                           ? "border-emerald-200 bg-emerald-50 text-emerald-700"
-                          : "border-amber-200 bg-amber-50 text-amber-700"
+                          : m.status === "LeaveRequested"
+                            ? "border-red-200 bg-red-50 text-red-700"
+                            : "border-amber-200 bg-amber-50 text-amber-700"
                       }
                     >
-                      {m.status}
+                      {m.status === "LeaveRequested" ? "Leaving" : m.status}
                     </Badge>
                   </td>
                   <td className="px-6 py-4">

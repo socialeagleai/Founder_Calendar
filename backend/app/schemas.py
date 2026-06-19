@@ -5,7 +5,7 @@ from pydantic import BaseModel, ConfigDict, EmailStr, Field
 from pydantic.alias_generators import to_camel
 
 Role = Literal["Owner", "Admin", "Member"]
-MemberStatus = Literal["Active", "Invited"]
+MemberStatus = Literal["Active", "Invited", "LeaveRequested"]
 
 
 class CamelModel(BaseModel):
@@ -106,6 +106,17 @@ class InvitationOut(CamelModel):
     organization_name: str
     role: Role
     created_at: datetime
+
+
+class LeaveRequestOut(CamelModel):
+    """A member's request to leave one of the owner's organizations — shown to
+    the owner in the notification bell. `id` is the TeamMember id."""
+
+    id: str
+    organization_id: str
+    organization_name: str
+    member_name: str
+    member_email: str
 
 
 # ---------- Team ----------

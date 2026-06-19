@@ -20,7 +20,13 @@ import {
   Plus,
 } from "lucide-react";
 import { toast } from "sonner";
-import { useStore, useCurrentUser, levelFor, type Invitation } from "@/lib/store";
+import {
+  useStore,
+  useCurrentUser,
+  levelFor,
+  type Invitation,
+  type LeaveRequest,
+} from "@/lib/store";
 import { pageKeyForPath } from "@/lib/pages";
 import { Logo } from "./logo";
 import { ThemeToggle } from "./theme-toggle";
@@ -275,9 +281,14 @@ function OrgSwitcher() {
 /** Notification bell listing pending invitations with accept / decline. */
 function NotificationBell() {
   const invitations = useStore((s) => s.invitations);
+  const leaveRequests = useStore((s) => s.leaveRequests);
   const acceptInvitation = useStore((s) => s.acceptInvitation);
   const declineInvitation = useStore((s) => s.declineInvitation);
-  const count = invitations.length;
+  const acceptLeaveRequest = useStore((s) => s.acceptLeaveRequest);
+  const declineLeaveRequest = useStore((s) => s.declineLeaveRequest);
+  // Which leave request is in its "confirm remove" step.
+  const [confirmingId, setConfirmingId] = useState<string | null>(null);
+  const count = invitations.length + leaveRequests.length;
 
   const accept = async (inv: Invitation) => {
     try {
@@ -295,9 +306,27 @@ function NotificationBell() {
       toast.error("Could not decline invitation");
     }
   };
+  const approveLeave = async (r: LeaveRequest) => {
+    try {
+      await acceptLeaveRequest(r.id);
+      toast.success(`${r.memberName} removed from ${r.organizationName}`);
+    } catch {
+      toast.error("Could not remove member");
+    } finally {
+      setConfirmingId(null);
+    }
+  };
+  const rejectLeave = async (r: LeaveRequest) => {
+    try {
+      await declineLeaveRequest(r.id);
+      toast.message(`${r.memberName} stays in ${r.organizationName}`);
+    } catch {
+      toast.error("Could not decline request");
+    }
+  };
 
   return (
-    <DropdownMenu>
+    <DropdownMenu onOpenChange={(o) => !o && setConfirmingId(null)}>
       <DropdownMenuTrigger asChild>
         <Button variant="ghost" size="icon" className="relative">
           <Bell className="h-4 w-4" />
@@ -309,38 +338,92 @@ function NotificationBell() {
         </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="w-80">
-        <DropdownMenuLabel>Invitations</DropdownMenuLabel>
+        <DropdownMenuLabel>Notifications</DropdownMenuLabel>
         <DropdownMenuSeparator />
         {count === 0 ? (
           <div className="px-3 py-8 text-center text-sm text-muted-foreground">
-            No new invitations
+            No new notifications
           </div>
         ) : (
-          invitations.map((inv) => (
-            <div key={inv.id} className="px-3 py-2.5">
-              <p className="text-sm leading-snug">
-                You're invited to join <span className="font-semibold">{inv.organizationName}</span>
-              </p>
-              <p className="mt-0.5 text-[11px] text-muted-foreground">Role: {inv.role}</p>
-              <div className="mt-2 flex gap-2">
-                <Button
-                  size="sm"
-                  className="h-8 flex-1 bg-primary text-primary-foreground hover:bg-primary-dark"
-                  onClick={() => void accept(inv)}
-                >
-                  Accept
-                </Button>
-                <Button
-                  size="sm"
-                  variant="outline"
-                  className="h-8 flex-1"
-                  onClick={() => void decline(inv)}
-                >
-                  Decline
-                </Button>
+          <>
+            {invitations.map((inv) => (
+              <div key={inv.id} className="px-3 py-2.5">
+                <p className="text-sm leading-snug">
+                  You're invited to join{" "}
+                  <span className="font-semibold">{inv.organizationName}</span>
+                </p>
+                <p className="mt-0.5 text-[11px] text-muted-foreground">Role: {inv.role}</p>
+                <div className="mt-2 flex gap-2">
+                  <Button
+                    size="sm"
+                    className="h-8 flex-1 bg-primary text-primary-foreground hover:bg-primary-dark"
+                    onClick={() => void accept(inv)}
+                  >
+                    Accept
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="h-8 flex-1"
+                    onClick={() => void decline(inv)}
+                  >
+                    Decline
+                  </Button>
+                </div>
               </div>
-            </div>
-          ))
+            ))}
+            {leaveRequests.map((r) => (
+              <div key={r.id} className="px-3 py-2.5">
+                <p className="text-sm leading-snug">
+                  <span className="font-semibold">{r.memberName}</span> requested to leave{" "}
+                  <span className="font-semibold">{r.organizationName}</span>
+                </p>
+                <p className="mt-0.5 text-[11px] text-muted-foreground">{r.memberEmail}</p>
+                {confirmingId === r.id ? (
+                  <div className="mt-2">
+                    <p className="text-[11px] text-muted-foreground">
+                      Remove {r.memberName} from {r.organizationName}? This can't be undone.
+                    </p>
+                    <div className="mt-1.5 flex gap-2">
+                      <Button
+                        size="sm"
+                        className="h-8 flex-1 bg-primary text-primary-foreground hover:bg-primary-dark"
+                        onClick={() => void approveLeave(r)}
+                      >
+                        Confirm remove
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="h-8 flex-1"
+                        onClick={() => setConfirmingId(null)}
+                      >
+                        Cancel
+                      </Button>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="mt-2 flex gap-2">
+                    <Button
+                      size="sm"
+                      className="h-8 flex-1 bg-primary text-primary-foreground hover:bg-primary-dark"
+                      onClick={() => setConfirmingId(r.id)}
+                    >
+                      Accept
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="h-8 flex-1"
+                      onClick={() => void rejectLeave(r)}
+                    >
+                      Decline
+                    </Button>
+                  </div>
+                )}
+              </div>
+            ))}
+          </>
         )}
       </DropdownMenuContent>
     </DropdownMenu>
