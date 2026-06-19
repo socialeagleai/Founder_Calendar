@@ -42,7 +42,9 @@ services:
       GOOGLE_CLIENT_ID: "815688246946-fc023atjo0dkeo2pqua2difekf3c11qa.apps.googleusercontent.com"
       CORS_ORIGINS: "https://fc.socialeagle.ai"
     ports:
-      - "8001:8000"
+      # Bound to localhost — only nginx (on this host) reaches it. Public
+      # access is via https://backend.fc.socialeagle.ai.
+      - "127.0.0.1:8001:8000"
 
   frontend:
     build:
@@ -55,7 +57,9 @@ services:
     depends_on:
       - backend
     ports:
-      - "8081:8080"
+      # Bound to localhost — only nginx (on this host) reaches it. Public
+      # access is via https://fc.socialeagle.ai.
+      - "127.0.0.1:8081:8080"
 
 volumes:
   founder_pgdata:
