@@ -12,4 +12,12 @@ export default defineConfig({
     // nitro/vite builds from this
     server: { entry: "server" },
   },
+  // Allow the production `vite preview` server (behind the nginx reverse proxy)
+  // to accept requests for our deployed domain — otherwise the forwarded
+  // Host header is rejected with "Blocked request ... is not allowed".
+  vite: {
+    preview: {
+      allowedHosts: ["fc.socialeagle.ai", "backend.fc.socialeagle.ai"],
+    },
+  },
 });
