@@ -1,0 +1,15 @@
+# Keep the build context small and secrets out of the image.
+.env
+.env.*
+__pycache__/
+*.pyc
+.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+docker-compose.yml
+Dockerfile
+.dockerignore
+README.md
+start.ps1
+smoke_test.py

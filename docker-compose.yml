@@ -1,0 +1,67 @@
+# Founder Calendar — full stack: Postgres + FastAPI backend + TanStack frontend.
+#
+#   docker compose up --build        # build images and start everything
+#   docker compose up -d             # start in the background
+#   docker compose down              # stop (data is kept in the pgdata volume)
+#
+# Open the app at http://localhost:8080  (API at http://localhost:8000).
+#
+# Same project name + pgdata volume as backend/docker-compose.yml, so the
+# existing database data is reused.
+name: founder_calendar
+
+services:
+  db:
+    image: postgres:16-alpine
+    container_name: founder_calendar_db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: founder
+      POSTGRES_PASSWORD: founder_pass
+      POSTGRES_DB: founder_calendar
+    ports:
+      # Host 5433 → container 5432 (host may already run Postgres on 5432).
+      - "5433:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U founder -d founder_calendar"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  backend:
+    build: ./backend
+    container_name: founder_calendar_backend
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      # Reach Postgres over the compose network by service name (port 5432).
+      DATABASE_URL: postgresql+psycopg2://founder:founder_pass@db:5432/founder_calendar
+      JWT_SECRET: change-me-in-production
+      JWT_ALGORITHM: HS256
+      ACCESS_TOKEN_EXPIRE_MINUTES: "10080"
+      GOOGLE_CLIENT_ID: "815688246946-fc023atjo0dkeo2pqua2difekf3c11qa.apps.googleusercontent.com"
+      # Origins the browser uses to call the API (the published frontend URL).
+      CORS_ORIGINS: "http://localhost:8080,http://127.0.0.1:8080"
+    ports:
+      - "8000:8000"
+
+  frontend:
+    build:
+      context: ./frontend
+      args:
+        # Baked into the client bundle — must be the URL the browser hits.
+        VITE_API_URL: "http://localhost:8000"
+        VITE_GOOGLE_CLIENT_ID: "815688246946-fc023atjo0dkeo2pqua2difekf3c11qa.apps.googleusercontent.com"
+    container_name: founder_calendar_frontend
+    restart: unless-stopped
+    depends_on:
+      - backend
+    ports:
+      - "8080:8080"
+
+volumes:
+  pgdata:

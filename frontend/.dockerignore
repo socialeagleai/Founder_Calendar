@@ -1,0 +1,13 @@
+# Keep the build context small — node_modules and build output are recreated
+# inside the image, and local env files shouldn't leak in.
+node_modules/
+dist/
+.output/
+.nitro/
+.vite/
+.env
+.env.*
+Dockerfile
+.dockerignore
+bun.lock.bak
+*.log

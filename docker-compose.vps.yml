@@ -1,0 +1,61 @@
+# Founder Calendar — VPS deployment (72.61.138.192)
+#
+# Runs alongside the existing "microsaas" stack. Idle host ports are used so
+# nothing collides with microsaas (3000 / 8000 / 5432 / 6379 / 80 / 443):
+#   frontend -> 8081   backend -> 8001   postgres -> internal only
+#
+#   docker compose -f docker-compose.vps.yml up -d --build
+#
+# App:  http://72.61.138.192:8081      API: http://72.61.138.192:8001
+name: founder_calendar
+
+services:
+  db:
+    image: postgres:16-alpine
+    container_name: founder_cal_db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: founder
+      POSTGRES_PASSWORD: founder_pass
+      POSTGRES_DB: founder_calendar
+    # Not published to the host — only the backend reaches it over the network.
+    volumes:
+      - founder_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U founder -d founder_calendar"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  backend:
+    build: ./backend
+    container_name: founder_cal_backend
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql+psycopg2://founder:founder_pass@db:5432/founder_calendar
+      JWT_SECRET: "9c01f6c72423f38bad59e5536d2150a1c47e9862849841b835eff922fc93a17c"
+      JWT_ALGORITHM: HS256
+      ACCESS_TOKEN_EXPIRE_MINUTES: "10080"
+      GOOGLE_CLIENT_ID: "815688246946-fc023atjo0dkeo2pqua2difekf3c11qa.apps.googleusercontent.com"
+      CORS_ORIGINS: "http://72.61.138.192:8081"
+    ports:
+      - "8001:8000"
+
+  frontend:
+    build:
+      context: ./frontend
+      args:
+        VITE_API_URL: "http://72.61.138.192:8001"
+        VITE_GOOGLE_CLIENT_ID: "815688246946-fc023atjo0dkeo2pqua2difekf3c11qa.apps.googleusercontent.com"
+    container_name: founder_cal_frontend
+    restart: unless-stopped
+    depends_on:
+      - backend
+    ports:
+      - "8081:8080"
+
+volumes:
+  founder_pgdata:

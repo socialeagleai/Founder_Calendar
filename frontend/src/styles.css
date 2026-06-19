@@ -1,0 +1,223 @@
+@import "tailwindcss" source(none);
+@source "../src";
+@import "tw-animate-css";
+
+@custom-variant dark (&:is(.dark *));
+
+@theme inline {
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+  --radius-2xl: calc(var(--radius) + 8px);
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-primary-dark: var(--primary-dark);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-border: var(--sidebar-border);
+  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
+  --shadow-soft: 0 1px 2px 0 rgb(0 0 0 / 0.06), 0 2px 8px -1px rgb(0 0 0 / 0.08);
+  --shadow-elevated: 0 10px 30px -6px rgb(0 0 0 / 0.12), 0 4px 10px -4px rgb(0 0 0 / 0.08);
+}
+
+:root {
+  --radius: 0.875rem;
+
+  /* Social Eagle brand */
+  /* Dim off-white canvas so white cards/calendar stand out against it */
+  --background: oklch(0.952 0.002 270);
+  --foreground: oklch(0.16 0 0);
+
+  --card: oklch(1 0 0);
+  --card-foreground: oklch(0.16 0 0);
+
+  --popover: oklch(1 0 0);
+  --popover-foreground: oklch(0.16 0 0);
+
+  /* Primary red #C4162A */
+  --primary: oklch(0.535 0.213 25.5);
+  --primary-foreground: oklch(1 0 0);
+  --primary-dark: oklch(0.42 0.19 25);
+
+  --secondary: oklch(0.972 0 0);
+  --secondary-foreground: oklch(0.16 0 0);
+
+  --muted: oklch(0.972 0 0);
+  --muted-foreground: oklch(0.5 0 0);
+
+  --accent: oklch(0.96 0.02 25);
+  --accent-foreground: oklch(0.535 0.213 25.5);
+
+  --destructive: oklch(0.535 0.213 25.5);
+  --destructive-foreground: oklch(1 0 0);
+
+  --border: oklch(0.92 0 0);
+  --input: oklch(0.92 0 0);
+  --ring: oklch(0.535 0.213 25.5);
+
+  --sidebar: oklch(0.985 0 0);
+  --sidebar-foreground: oklch(0.16 0 0);
+  --sidebar-accent: oklch(0.96 0.02 25);
+  --sidebar-border: oklch(0.92 0 0);
+}
+
+.dark {
+  /* Social Eagle brand — dark theme */
+  --background: oklch(0.165 0 0);
+  --foreground: oklch(0.96 0 0);
+
+  --card: oklch(0.205 0 0);
+  --card-foreground: oklch(0.96 0 0);
+
+  --popover: oklch(0.205 0 0);
+  --popover-foreground: oklch(0.96 0 0);
+
+  /* Slightly brighter red so it pops on dark surfaces */
+  --primary: oklch(0.62 0.205 25.5);
+  --primary-foreground: oklch(0.99 0 0);
+  --primary-dark: oklch(0.54 0.19 25);
+
+  --secondary: oklch(0.245 0 0);
+  --secondary-foreground: oklch(0.96 0 0);
+
+  --muted: oklch(0.245 0 0);
+  --muted-foreground: oklch(0.68 0 0);
+
+  --accent: oklch(0.285 0.045 25);
+  --accent-foreground: oklch(0.8 0.13 25.5);
+
+  --destructive: oklch(0.62 0.205 25.5);
+  --destructive-foreground: oklch(0.99 0 0);
+
+  --border: oklch(0.275 0 0);
+  --input: oklch(0.3 0 0);
+  --ring: oklch(0.62 0.205 25.5);
+
+  --sidebar: oklch(0.185 0 0);
+  --sidebar-foreground: oklch(0.96 0 0);
+  --sidebar-accent: oklch(0.285 0.045 25);
+  --sidebar-border: oklch(0.275 0 0);
+
+  /* Stronger shadows so depth reads against dark backgrounds */
+  --shadow-soft: 0 1px 2px 0 rgb(0 0 0 / 0.4), 0 1px 3px 0 rgb(0 0 0 / 0.5);
+  --shadow-elevated: 0 8px 28px -6px rgb(0 0 0 / 0.6), 0 4px 10px -4px rgb(0 0 0 / 0.5);
+}
+
+@layer base {
+  * {
+    border-color: var(--color-border);
+  }
+
+  html, body {
+    background-color: var(--color-background);
+    color: var(--color-foreground);
+    font-family: var(--font-sans);
+    -webkit-font-smoothing: antialiased;
+    font-feature-settings: "cv11", "ss01";
+  }
+
+  /* Smoothly cross-fade colors when toggling light/dark */
+  body, .theme-transition * {
+    transition:
+      background-color 0.3s ease,
+      border-color 0.3s ease,
+      color 0.3s ease,
+      fill 0.3s ease;
+  }
+
+  h1, h2, h3, h4 {
+    letter-spacing: -0.02em;
+  }
+
+  /* Refined scrollbars */
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: var(--color-border) transparent;
+  }
+  *::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+  *::-webkit-scrollbar-thumb {
+    background: var(--color-border);
+    border-radius: 9999px;
+    border: 3px solid var(--color-background);
+  }
+  *::-webkit-scrollbar-thumb:hover {
+    background: var(--color-muted-foreground);
+  }
+}
+
+@layer utilities {
+  /* Lift + deepen shadow on hover — used on cards */
+  .hover-lift {
+    transition:
+      transform 0.2s cubic-bezier(0.22, 1, 0.36, 1),
+      box-shadow 0.2s cubic-bezier(0.22, 1, 0.36, 1);
+  }
+  .hover-lift:hover {
+    transform: translateY(-3px);
+    box-shadow: var(--shadow-elevated);
+  }
+
+  /* Brand gradient for hero surfaces */
+  .bg-brand-gradient {
+    background-image: linear-gradient(
+      135deg,
+      var(--color-primary) 0%,
+      var(--color-primary-dark) 100%
+    );
+  }
+
+  /* More pronounced red gradient for large surfaces (e.g. accent stat cards) */
+  .bg-stat-gradient {
+    background-image: linear-gradient(
+      135deg,
+      oklch(0.61 0.225 27) 0%,
+      oklch(0.5 0.21 26) 45%,
+      oklch(0.39 0.17 25) 100%
+    );
+  }
+  .dark .bg-stat-gradient {
+    background-image: linear-gradient(
+      135deg,
+      oklch(0.66 0.225 27) 0%,
+      oklch(0.54 0.2 26) 45%,
+      oklch(0.42 0.17 25) 100%
+    );
+  }
+
+  /* Subtle animated sheen for skeletons / loading */
+  .animate-fade-up {
+    animation: fade-up 0.4s cubic-bezier(0.22, 1, 0.36, 1) both;
+  }
+  @keyframes fade-up {
+    from {
+      opacity: 0;
+      transform: translateY(8px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+}

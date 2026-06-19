@@ -1,0 +1,32 @@
+# ---- Secrets / local env ----
+.env
+.env.*
+!.env.example
+backend/.env
+frontend/.env
+
+# ---- Python (backend) ----
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+
+# ---- Node / frontend ----
+node_modules/
+dist/
+.output/
+.nitro/
+.vite/
+*.log
+bun.lock.bak
+
+# ---- Editors / OS ----
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+
+# ---- Claude local files ----
+.claude/
