@@ -5,7 +5,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
 
 from ..database import get_db
-from ..deps import get_current_org, get_current_user
+from ..deps import get_current_org, get_current_user, require_page_edit
 from ..models import Board, BoardBox, Organization, TeamMember, User
 from ..schemas import (
     BoardCopyRequest,
@@ -20,6 +20,9 @@ from ..schemas import (
 )
 
 router = APIRouter(prefix="/api", tags=["boards"])
+
+# Boards (and their boxes) are edited from the Board page.
+require_board_edit = require_page_edit("board")
 
 
 def _get_board(db: Session, org: Organization, board_id: str) -> Board:
@@ -81,7 +84,12 @@ def list_boards(
     return [_summary(b) for b in boards]
 
 
-@router.post("/boards", response_model=BoardDetailOut, status_code=status.HTTP_201_CREATED)
+@router.post(
+    "/boards",
+    response_model=BoardDetailOut,
+    status_code=status.HTTP_201_CREATED,
+    dependencies=[Depends(require_board_edit)],
+)
 def create_board(
     body: BoardCreateRequest,
     org: Organization = Depends(get_current_org),
@@ -109,7 +117,11 @@ def get_board(
     return _get_board(db, org, board_id)
 
 
-@router.patch("/boards/{board_id}", response_model=BoardSummaryOut)
+@router.patch(
+    "/boards/{board_id}",
+    response_model=BoardSummaryOut,
+    dependencies=[Depends(require_board_edit)],
+)
 def rename_board(
     board_id: str,
     body: BoardUpdateRequest,
@@ -123,7 +135,11 @@ def rename_board(
     return _summary(board)
 
 
-@router.delete("/boards/{board_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete(
+    "/boards/{board_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    dependencies=[Depends(require_board_edit)],
+)
 def delete_board(
     board_id: str,
     org: Organization = Depends(get_current_org),
@@ -135,7 +151,11 @@ def delete_board(
     return None
 
 
-@router.post("/boards/{board_id}/share", response_model=BoardShareOut)
+@router.post(
+    "/boards/{board_id}/share",
+    response_model=BoardShareOut,
+    dependencies=[Depends(require_board_edit)],
+)
 def share_board(
     board_id: str,
     org: Organization = Depends(get_current_org),
@@ -149,7 +169,12 @@ def share_board(
     return BoardShareOut(token=board.share_token)
 
 
-@router.post("/boards/{board_id}/copy", response_model=BoardSummaryOut, status_code=status.HTTP_201_CREATED)
+@router.post(
+    "/boards/{board_id}/copy",
+    response_model=BoardSummaryOut,
+    status_code=status.HTTP_201_CREATED,
+    dependencies=[Depends(require_board_edit)],
+)
 def copy_board(
     board_id: str,
     body: BoardCopyRequest,
@@ -212,7 +237,12 @@ def get_shared_board(
 
 
 # ---------- Boxes ----------
-@router.post("/boards/{board_id}/boxes", response_model=BoxOut, status_code=status.HTTP_201_CREATED)
+@router.post(
+    "/boards/{board_id}/boxes",
+    response_model=BoxOut,
+    status_code=status.HTTP_201_CREATED,
+    dependencies=[Depends(require_board_edit)],
+)
 def add_box(
     board_id: str,
     body: BoxCreateRequest,
@@ -237,7 +267,7 @@ def add_box(
     return box
 
 
-@router.patch("/boxes/{box_id}", response_model=BoxOut)
+@router.patch("/boxes/{box_id}", response_model=BoxOut, dependencies=[Depends(require_board_edit)])
 def update_box(
     box_id: str,
     body: BoxUpdateRequest,
@@ -252,7 +282,11 @@ def update_box(
     return box
 
 
-@router.delete("/boxes/{box_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete(
+    "/boxes/{box_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    dependencies=[Depends(require_board_edit)],
+)
 def delete_box(
     box_id: str,
     org: Organization = Depends(get_current_org),

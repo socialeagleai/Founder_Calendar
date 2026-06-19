@@ -2,11 +2,13 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
 from ..database import get_db
-from ..deps import get_current_org
-from ..models import Organization, TeamMember
+from ..deps import get_current_org, get_current_user, require_page_edit
+from ..models import Organization, TeamMember, User
 from ..schemas import InviteMemberRequest, TeamMemberOut, UpdateRoleRequest
 
 router = APIRouter(prefix="/api/team", tags=["team"])
+
+require_team_edit = require_page_edit("team")
 
 
 def _get_member(db: Session, org: Organization, member_id: str) -> TeamMember:
@@ -33,7 +35,12 @@ def list_team(
     )
 
 
-@router.post("", response_model=TeamMemberOut, status_code=status.HTTP_201_CREATED)
+@router.post(
+    "",
+    response_model=TeamMemberOut,
+    status_code=status.HTTP_201_CREATED,
+    dependencies=[Depends(require_team_edit)],
+)
 def invite_member(
     body: InviteMemberRequest,
     org: Organization = Depends(get_current_org),
@@ -62,16 +69,25 @@ def invite_member(
     return member
 
 
-@router.patch("/{member_id}", response_model=TeamMemberOut)
+@router.patch(
+    "/{member_id}", response_model=TeamMemberOut, dependencies=[Depends(require_team_edit)]
+)
 def update_member(
     member_id: str,
     body: UpdateRoleRequest,
     org: Organization = Depends(get_current_org),
+    user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> TeamMember:
     member = _get_member(db, org, member_id)
     if member.role == "Owner":
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Cannot change the Owner")
+    # Anti-escalation: a non-owner team manager cannot edit their own role or
+    # permissions (only the owner can change a team manager's access).
+    if org.owner_id != user.id and member.email == user.email:
+        raise HTTPException(
+            status.HTTP_403_FORBIDDEN, "You cannot change your own access."
+        )
     if body.role is not None:
         if body.role == "Owner":
             raise HTTPException(status.HTTP_400_BAD_REQUEST, "Cannot promote a member to Owner")
@@ -83,7 +99,11 @@ def update_member(
     return member
 
 
-@router.delete("/{member_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete(
+    "/{member_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    dependencies=[Depends(require_team_edit)],
+)
 def remove_member(
     member_id: str,
     org: Organization = Depends(get_current_org),

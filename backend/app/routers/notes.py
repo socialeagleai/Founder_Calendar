@@ -2,11 +2,14 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
 from ..database import get_db
-from ..deps import get_current_org, get_current_user
+from ..deps import get_current_org, get_current_user, require_page_edit
 from ..models import Note, Organization, User
 from ..schemas import NoteCreateRequest, NoteOut, NoteUpdateRequest
 
 router = APIRouter(prefix="/api/notes", tags=["notes"])
+
+# Writing notes is part of the Calendar page.
+require_calendar_edit = require_page_edit("calendar")
 
 
 def _get_note(db: Session, org: Organization, note_id: str) -> Note:
@@ -33,7 +36,12 @@ def list_notes(
     )
 
 
-@router.post("", response_model=NoteOut, status_code=status.HTTP_201_CREATED)
+@router.post(
+    "",
+    response_model=NoteOut,
+    status_code=status.HTTP_201_CREATED,
+    dependencies=[Depends(require_calendar_edit)],
+)
 def create_note(
     body: NoteCreateRequest,
     org: Organization = Depends(get_current_org),
@@ -48,7 +56,7 @@ def create_note(
     return note
 
 
-@router.put("/{note_id}", response_model=NoteOut)
+@router.put("/{note_id}", response_model=NoteOut, dependencies=[Depends(require_calendar_edit)])
 def update_note(
     note_id: str,
     body: NoteUpdateRequest,
@@ -62,7 +70,11 @@ def update_note(
     return note
 
 
-@router.delete("/{note_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete(
+    "/{note_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    dependencies=[Depends(require_calendar_edit)],
+)
 def delete_note(
     note_id: str,
     org: Organization = Depends(get_current_org),

@@ -4,11 +4,13 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
 
 from ..database import get_db
-from ..deps import get_current_org, get_current_user
+from ..deps import get_current_org, get_current_user, require_page_edit
 from ..models import Organization, Template, User
 from ..schemas import TemplateCreateRequest, TemplateKind, TemplateOut, TemplateUpdateRequest
 
 router = APIRouter(prefix="/api/templates", tags=["templates"])
+
+require_templates_edit = require_page_edit("templates")
 
 
 def _uid() -> str:
@@ -155,7 +157,12 @@ def list_templates(
     return query.order_by(Template.created_at.desc()).all()
 
 
-@router.post("", response_model=TemplateOut, status_code=status.HTTP_201_CREATED)
+@router.post(
+    "",
+    response_model=TemplateOut,
+    status_code=status.HTTP_201_CREATED,
+    dependencies=[Depends(require_templates_edit)],
+)
 def create_template(
     body: TemplateCreateRequest,
     org: Organization = Depends(get_current_org),
@@ -175,7 +182,11 @@ def create_template(
     return template
 
 
-@router.patch("/{template_id}", response_model=TemplateOut)
+@router.patch(
+    "/{template_id}",
+    response_model=TemplateOut,
+    dependencies=[Depends(require_templates_edit)],
+)
 def update_template(
     template_id: str,
     body: TemplateUpdateRequest,
@@ -193,7 +204,11 @@ def update_template(
     return template
 
 
-@router.delete("/{template_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete(
+    "/{template_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    dependencies=[Depends(require_templates_edit)],
+)
 def delete_template(
     template_id: str,
     org: Organization = Depends(get_current_org),

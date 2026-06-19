@@ -1,3 +1,5 @@
+from typing import Callable
+
 from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy.orm import Session
@@ -48,3 +50,47 @@ def get_current_org(
     if not org:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "No organization for current user")
     return org
+
+
+def _member_of(db: Session, org: Organization, user: User) -> TeamMember | None:
+    return (
+        db.query(TeamMember)
+        .filter(TeamMember.organization_id == org.id, TeamMember.email == user.email)
+        .first()
+    )
+
+
+def require_page_edit(page_key: str) -> Callable[..., None]:
+    """Build a dependency that allows a write only if the caller can EDIT the
+    given page. Owners always pass; members need permissions[page_key] == "edit".
+    View-only or no access → 403. Applied to write endpoints so "view" access is
+    truly read-only at the API level (not just hidden in the UI)."""
+
+    def _dep(
+        user: User = Depends(get_current_user),
+        org: Organization = Depends(get_current_org),
+        db: Session = Depends(get_db),
+    ) -> None:
+        # The organization owner has implicit full access.
+        if org.owner_id == user.id:
+            return
+        member = _member_of(db, org, user)
+        if member is None or (member.permissions or {}).get(page_key) != "edit":
+            raise HTTPException(
+                status.HTTP_403_FORBIDDEN,
+                f"You have view-only access to {page_key}.",
+            )
+
+    return _dep
+
+
+def require_owner(
+    user: User = Depends(get_current_user),
+    org: Organization = Depends(get_current_org),
+) -> None:
+    """Dependency that allows only the organization owner (for destructive,
+    non-delegable actions like deleting the whole organization)."""
+    if org.owner_id != user.id:
+        raise HTTPException(
+            status.HTTP_403_FORBIDDEN, "Only the organization owner can do this."
+        )

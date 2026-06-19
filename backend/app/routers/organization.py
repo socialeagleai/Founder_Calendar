@@ -2,11 +2,19 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
 from ..database import get_db
-from ..deps import find_org_for_user, get_current_org, get_current_user
+from ..deps import (
+    find_org_for_user,
+    get_current_org,
+    get_current_user,
+    require_owner,
+    require_page_edit,
+)
 from ..models import Organization, TeamMember, User
 from ..schemas import OrganizationOut, OrgCreateRequest, OrgUpdateRequest
 
 router = APIRouter(prefix="/api/organization", tags=["organization"])
+
+require_org_edit = require_page_edit("organization")
 
 
 @router.get("", response_model=OrganizationOut | None)
@@ -44,7 +52,7 @@ def create_organization(
     return org
 
 
-@router.patch("", response_model=OrganizationOut)
+@router.patch("", response_model=OrganizationOut, dependencies=[Depends(require_org_edit)])
 def update_organization(
     body: OrgUpdateRequest,
     org: Organization = Depends(get_current_org),
@@ -57,7 +65,9 @@ def update_organization(
     return org
 
 
-@router.delete("", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete(
+    "", status_code=status.HTTP_204_NO_CONTENT, dependencies=[Depends(require_owner)]
+)
 def delete_organization(
     org: Organization = Depends(get_current_org),
     db: Session = Depends(get_db),

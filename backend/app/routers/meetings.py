@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
 
 from ..database import get_db
-from ..deps import get_current_org, get_current_user
+from ..deps import get_current_org, get_current_user, require_page_edit
 from ..models import Meeting, Organization, User
 from ..schemas import (
     MeetingCreateRequest,
@@ -14,6 +14,8 @@ from ..schemas import (
 )
 
 router = APIRouter(prefix="/api/meetings", tags=["meetings"])
+
+require_meeting_edit = require_page_edit("meeting")
 
 
 def _get_meeting(db: Session, org: Organization, meeting_id: str) -> Meeting:
@@ -58,7 +60,12 @@ def list_meetings(
     return [_summary(m) for m in meetings]
 
 
-@router.post("", response_model=MeetingDetailOut, status_code=status.HTTP_201_CREATED)
+@router.post(
+    "",
+    response_model=MeetingDetailOut,
+    status_code=status.HTTP_201_CREATED,
+    dependencies=[Depends(require_meeting_edit)],
+)
 def create_meeting(
     body: MeetingCreateRequest,
     org: Organization = Depends(get_current_org),
@@ -89,7 +96,11 @@ def get_meeting(
     return _get_meeting(db, org, meeting_id)
 
 
-@router.patch("/{meeting_id}", response_model=MeetingDetailOut)
+@router.patch(
+    "/{meeting_id}",
+    response_model=MeetingDetailOut,
+    dependencies=[Depends(require_meeting_edit)],
+)
 def update_meeting(
     meeting_id: str,
     body: MeetingUpdateRequest,
@@ -112,7 +123,11 @@ def update_meeting(
     return meeting
 
 
-@router.delete("/{meeting_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete(
+    "/{meeting_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    dependencies=[Depends(require_meeting_edit)],
+)
 def delete_meeting(
     meeting_id: str,
     org: Organization = Depends(get_current_org),
