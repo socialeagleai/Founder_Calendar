@@ -17,6 +17,31 @@ export type Role = "Owner" | "Admin" | "Member";
 export type PageAccess = "view" | "edit";
 export type Permissions = Record<string, PageAccess>;
 
+// Audience control shared by notes, boards and meetings. "everyone" = whole org;
+// "departments"/"members" = only the listed departments/teammates; "private" =
+// just the creator. The creator always sees their own item.
+export type Visibility = "everyone" | "departments" | "members" | "private";
+
+export interface Audience {
+  visibility: Visibility;
+  visibleDepartments: string[]; // department ids (when visibility === "departments")
+  visibleMembers: string[]; // TeamMember ids (when visibility === "members")
+}
+
+/** The default audience for a brand-new item: visible to the whole org. */
+export const EVERYONE_AUDIENCE: Audience = {
+  visibility: "everyone",
+  visibleDepartments: [],
+  visibleMembers: [],
+};
+
+/** Pull just the audience fields off any item that carries them. */
+export const audienceOf = (i: Audience): Audience => ({
+  visibility: i.visibility,
+  visibleDepartments: i.visibleDepartments ?? [],
+  visibleMembers: i.visibleMembers ?? [],
+});
+
 export interface Access {
   isOwner: boolean;
   role: Role;
@@ -60,6 +85,14 @@ export interface TeamMember {
   role: Role;
   status: MemberStatus;
   permissions: Permissions;
+  departmentId?: string | null; // the team grouping this member belongs to
+}
+
+/** A team grouping inside an org (e.g. HR, Operations). */
+export interface Department {
+  id: string;
+  name: string;
+  createdAt: string;
 }
 
 /** A member's request to leave one of the owner's orgs (owner's notification). */
@@ -79,7 +112,7 @@ export interface AppNotification {
   createdAt: string;
 }
 
-export interface Note {
+export interface Note extends Audience {
   id: string;
   date: string; // YYYY-MM-DD
   content: string;
@@ -107,7 +140,7 @@ export interface Box {
   color: string;
 }
 
-export interface BoardSummary {
+export interface BoardSummary extends Audience {
   id: string;
   date: string; // YYYY-MM-DD
   title: string;
@@ -118,7 +151,7 @@ export interface BoardSummary {
   openTaskCount: number; // tasks not yet done, across all boxes
 }
 
-export interface BoardDetail {
+export interface BoardDetail extends Audience {
   id: string;
   date: string;
   title: string;
@@ -145,7 +178,7 @@ export interface MeetingSection {
   items: MeetingItem[];
 }
 
-export interface MeetingSummary {
+export interface MeetingSummary extends Audience {
   id: string;
   name: string;
   date: string; // YYYY-MM-DD
@@ -158,7 +191,7 @@ export interface MeetingSummary {
   updatedAt: string;
 }
 
-export interface MeetingDetail {
+export interface MeetingDetail extends Audience {
   id: string;
   name: string;
   date: string; // YYYY-MM-DD
@@ -176,6 +209,10 @@ export interface MeetingInput {
   schedule: Schedule;
   duration?: string;
   sections?: MeetingSection[];
+  // Audience. Optional on input; the backend defaults to "everyone".
+  visibility?: Visibility;
+  visibleDepartments?: string[];
+  visibleMembers?: string[];
 }
 
 // ---- Templates ----
@@ -228,6 +265,7 @@ interface AppState {
   notifications: AppNotification[];
   access: Access | null;
   team: TeamMember[];
+  departments: Department[];
   notes: Note[];
   boards: BoardSummary[];
   meetings: MeetingSummary[];
@@ -247,14 +285,17 @@ interface AppState {
   refreshCalendarFeed: () => Promise<void>;
 
   // Boards
-  createBoard: (date: string, title?: string) => Promise<BoardDetail>;
+  createBoard: (date: string, title?: string, audience?: Audience) => Promise<BoardDetail>;
   renameBoard: (id: string, title: string) => Promise<void>;
+  setBoardAudience: (id: string, audience: Audience) => Promise<void>;
   copyBoard: (id: string, date: string, title?: string) => Promise<void>;
   deleteBoard: (id: string) => Promise<void>;
 
   // Meetings
   createMeeting: (input: MeetingInput) => Promise<MeetingDetail>;
   renameMeeting: (id: string, name: string) => Promise<void>;
+  setMeetingAudience: (id: string, audience: Audience) => Promise<void>;
+  copyMeeting: (id: string, date: string, name?: string) => Promise<void>;
   deleteMeeting: (id: string) => Promise<void>;
 
   // Templates
@@ -295,13 +336,19 @@ interface AppState {
     email: string,
     role: Role,
     permissions: Permissions,
+    departmentId?: string | null,
   ) => Promise<void>;
   removeMember: (id: string) => Promise<void>;
   updateMemberRole: (id: string, role: Role) => Promise<void>;
   updateMemberPermissions: (id: string, permissions: Permissions) => Promise<void>;
+  updateMemberDepartment: (id: string, departmentId: string | null) => Promise<void>;
+
+  // Departments
+  createDepartment: (name: string) => Promise<void>;
+  deleteDepartment: (id: string) => Promise<void>;
 
   // Notes
-  saveNote: (date: string, content: string, id?: string) => Promise<void>;
+  saveNote: (date: string, content: string, id?: string, audience?: Audience) => Promise<void>;
   deleteNote: (id: string) => Promise<void>;
 
   // Profile
@@ -320,6 +367,7 @@ export const useStore = create<AppState>((set, get) => ({
   notifications: [],
   access: null,
   team: [],
+  departments: [],
   notes: [],
   boards: [],
   meetings: [],
@@ -353,6 +401,7 @@ export const useStore = create<AppState>((set, get) => ({
         notifications: [],
         access: null,
         team: [],
+        departments: [],
         notes: [],
         boards: [],
         meetings: [],
@@ -390,6 +439,7 @@ export const useStore = create<AppState>((set, get) => ({
         organization: null,
         access: null,
         team: [],
+        departments: [],
         notes: [],
         boards: [],
         meetings: [],
@@ -412,6 +462,7 @@ export const useStore = create<AppState>((set, get) => ({
       access,
       org,
       team,
+      departments,
       notes,
       boards,
       meetings,
@@ -424,6 +475,7 @@ export const useStore = create<AppState>((set, get) => ({
       api.getAccess().catch((): Access => ({ isOwner: true, role: "Owner", permissions: {} })),
       api.getOrganization(),
       api.getTeam(),
+      api.getDepartments().catch((): Department[] => []),
       api.getNotes(),
       api.getBoards(), // my boards (list page)
       api.getMeetings(), // my meetings (list page)
@@ -437,6 +489,7 @@ export const useStore = create<AppState>((set, get) => ({
       access,
       organization: org,
       team,
+      departments,
       notes,
       boards,
       meetings,
@@ -473,8 +526,8 @@ export const useStore = create<AppState>((set, get) => ({
     set({ calendarBoards, calendarMeetings });
   },
 
-  createBoard: async (date, title) => {
-    const board = await api.createBoard(date, title);
+  createBoard: async (date, title, audience) => {
+    const board = await api.createBoard(date, title, audience);
     await get().refreshBoards();
     void get().refreshCalendarFeed();
     return board;
@@ -486,6 +539,16 @@ export const useStore = create<AppState>((set, get) => ({
       boards: s.boards.map((b) => (b.id === id ? updated : b)),
       calendarBoards: s.calendarBoards.map((b) => (b.id === id ? updated : b)),
     }));
+  },
+
+  setBoardAudience: async (id, audience) => {
+    const updated = await api.setBoardAudience(id, audience);
+    // The board may now be visible to more/fewer people on the shared calendar.
+    set((s) => ({
+      boards: s.boards.map((b) => (b.id === id ? updated : b)),
+      calendarBoards: s.calendarBoards.map((b) => (b.id === id ? updated : b)),
+    }));
+    void get().refreshCalendarFeed();
   },
 
   copyBoard: async (id, date, title) => {
@@ -519,6 +582,30 @@ export const useStore = create<AppState>((set, get) => ({
       meetings: s.meetings.map(patch),
       calendarMeetings: s.calendarMeetings.map(patch),
     }));
+  },
+
+  setMeetingAudience: async (id, audience) => {
+    const updated = await api.setMeetingAudience(id, audience);
+    const patch = (m: MeetingSummary): MeetingSummary =>
+      m.id === id
+        ? {
+            ...m,
+            visibility: updated.visibility,
+            visibleDepartments: updated.visibleDepartments,
+            visibleMembers: updated.visibleMembers,
+          }
+        : m;
+    set((s) => ({
+      meetings: s.meetings.map(patch),
+      calendarMeetings: s.calendarMeetings.map(patch),
+    }));
+    void get().refreshCalendarFeed();
+  },
+
+  copyMeeting: async (id, date, name) => {
+    await api.copyMeeting(id, date, name);
+    await get().refreshMeetings();
+    void get().refreshCalendarFeed();
   },
 
   deleteMeeting: async (id) => {
@@ -600,6 +687,7 @@ export const useStore = create<AppState>((set, get) => ({
       notifications: [],
       access: null,
       team: [],
+      departments: [],
       notes: [],
       boards: [],
       meetings: [],
@@ -712,8 +800,8 @@ export const useStore = create<AppState>((set, get) => ({
     await api.dismissNotification(id).catch(() => {});
   },
 
-  inviteMember: async (name, email, role, permissions) => {
-    const member = await api.inviteMember(name, email, role, permissions);
+  inviteMember: async (name, email, role, permissions, departmentId) => {
+    const member = await api.inviteMember(name, email, role, permissions, departmentId);
     set((s) => ({ team: [...s.team, member] }));
   },
 
@@ -732,12 +820,32 @@ export const useStore = create<AppState>((set, get) => ({
     set((s) => ({ team: s.team.map((m) => (m.id === id ? member : m)) }));
   },
 
-  saveNote: async (date, content, id) => {
+  updateMemberDepartment: async (id, departmentId) => {
+    const member = await api.updateMember(id, { departmentId });
+    set((s) => ({ team: s.team.map((m) => (m.id === id ? member : m)) }));
+  },
+
+  createDepartment: async (name) => {
+    const dept = await api.createDepartment(name);
+    set((s) => ({ departments: [...s.departments, dept] }));
+  },
+
+  deleteDepartment: async (id) => {
+    await api.deleteDepartment(id);
+    // The department is gone and its members are unassigned server-side; reflect
+    // both locally without a full reload.
+    set((s) => ({
+      departments: s.departments.filter((d) => d.id !== id),
+      team: s.team.map((m) => (m.departmentId === id ? { ...m, departmentId: null } : m)),
+    }));
+  },
+
+  saveNote: async (date, content, id, audience) => {
     if (id) {
-      const note = await api.updateNote(id, content);
+      const note = await api.updateNote(id, content, audience);
       set((s) => ({ notes: s.notes.map((n) => (n.id === id ? note : n)) }));
     } else {
-      const note = await api.createNote(date, content);
+      const note = await api.createNote(date, content, audience);
       set((s) => ({ notes: [...s.notes, note] }));
     }
   },

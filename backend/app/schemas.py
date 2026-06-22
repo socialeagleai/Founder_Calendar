@@ -18,6 +18,32 @@ class CamelModel(BaseModel):
     )
 
 
+# ---------- Audience / visibility (shared by notes, boards, meetings) ----------
+# everyone = whole org; departments = members in visible_departments; members =
+# the TeamMembers in visible_members; private = creator only.
+Visibility = Literal["everyone", "departments", "members", "private"]
+
+
+class AudienceRequest(BaseModel):
+    """Audience fields carried by note/board/meeting create + update requests.
+    Plain BaseModel with the camelCase alias so the frontend can send
+    visibleDepartments / visibleMembers."""
+
+    model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True)
+
+    visibility: Visibility = "everyone"
+    visible_departments: list[str] = []
+    visible_members: list[str] = []
+
+
+class AudienceOut(CamelModel):
+    """Audience fields echoed back on every note/board/meeting payload."""
+
+    visibility: Visibility = "everyone"
+    visible_departments: list[str] = []
+    visible_members: list[str] = []
+
+
 # ---------- Auth ----------
 class SignupRequest(BaseModel):
     name: str = Field(min_length=1)
@@ -135,15 +161,23 @@ Permissions = dict[str, PageAccess]
 
 
 class InviteMemberRequest(BaseModel):
+    # Accept camelCase keys (e.g. departmentId) from the frontend while still
+    # allowing the snake_case field names.
+    model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True)
+
     name: str = Field(min_length=1)
     email: EmailStr
     role: Role = "Member"
     permissions: Permissions = {}
+    department_id: str | None = None
 
 
 class UpdateRoleRequest(BaseModel):
+    model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True)
+
     role: Role | None = None
     permissions: Permissions | None = None
+    department_id: str | None = None
 
 
 class TeamMemberOut(CamelModel):
@@ -153,6 +187,18 @@ class TeamMemberOut(CamelModel):
     role: Role
     status: MemberStatus
     permissions: Permissions
+    department_id: str | None = None
+
+
+# ---------- Departments ----------
+class CreateDepartmentRequest(BaseModel):
+    name: str = Field(min_length=1)
+
+
+class DepartmentOut(CamelModel):
+    id: str
+    name: str
+    created_at: datetime
 
 
 class AccessOut(CamelModel):
@@ -164,16 +210,16 @@ class AccessOut(CamelModel):
 
 
 # ---------- Notes ----------
-class NoteCreateRequest(BaseModel):
+class NoteCreateRequest(AudienceRequest):
     date: str = Field(pattern=r"^\d{4}-\d{2}-\d{2}$")
     content: str = Field(min_length=1)
 
 
-class NoteUpdateRequest(BaseModel):
+class NoteUpdateRequest(AudienceRequest):
     content: str = Field(min_length=1)
 
 
-class NoteOut(CamelModel):
+class NoteOut(AudienceOut):
     id: str
     date: str
     content: str
@@ -184,13 +230,14 @@ class NoteOut(CamelModel):
 
 
 # ---------- Boards ----------
-class BoardCreateRequest(BaseModel):
+class BoardCreateRequest(AudienceRequest):
     date: str = Field(pattern=r"^\d{4}-\d{2}-\d{2}$")
     title: str | None = None
 
 
-class BoardUpdateRequest(BaseModel):
-    title: str = Field(min_length=1)
+class BoardUpdateRequest(AudienceRequest):
+    # Optional so the editor can patch audience without resending the title.
+    title: str | None = Field(default=None, min_length=1)
 
 
 class BoxTaskModel(CamelModel):
@@ -233,7 +280,7 @@ class BoxUpdateRequest(BaseModel):
     color: str | None = None
 
 
-class BoardSummaryOut(CamelModel):
+class BoardSummaryOut(AudienceOut):
     id: str
     date: str
     title: str
@@ -244,7 +291,7 @@ class BoardSummaryOut(CamelModel):
     open_task_count: int  # tasks not yet marked done, across all boxes
 
 
-class BoardDetailOut(CamelModel):
+class BoardDetailOut(AudienceOut):
     id: str
     date: str
     title: str
@@ -282,7 +329,7 @@ class MeetingSectionModel(CamelModel):
     items: list[MeetingItemModel] = []
 
 
-class MeetingCreateRequest(BaseModel):
+class MeetingCreateRequest(AudienceRequest):
     name: str = Field(min_length=1)
     date: str = Field(pattern=r"^\d{4}-\d{2}-\d{2}$")
     schedule: Schedule = "Weekly"
@@ -290,7 +337,7 @@ class MeetingCreateRequest(BaseModel):
     sections: list[MeetingSectionModel] = []
 
 
-class MeetingUpdateRequest(BaseModel):
+class MeetingUpdateRequest(AudienceRequest):
     name: str | None = Field(default=None, min_length=1)
     date: str | None = Field(default=None, pattern=r"^\d{4}-\d{2}-\d{2}$")
     schedule: Schedule | None = None
@@ -298,7 +345,12 @@ class MeetingUpdateRequest(BaseModel):
     sections: list[MeetingSectionModel] | None = None
 
 
-class MeetingSummaryOut(CamelModel):
+class MeetingCopyRequest(BaseModel):
+    date: str = Field(pattern=r"^\d{4}-\d{2}-\d{2}$")
+    name: str | None = None
+
+
+class MeetingSummaryOut(AudienceOut):
     id: str
     name: str
     date: str
@@ -311,7 +363,7 @@ class MeetingSummaryOut(CamelModel):
     updated_at: datetime
 
 
-class MeetingDetailOut(CamelModel):
+class MeetingDetailOut(AudienceOut):
     id: str
     name: str
     date: str

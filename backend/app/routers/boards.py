@@ -6,9 +6,12 @@ from sqlalchemy.orm import Session
 
 from ..database import get_db
 from ..deps import (
+    can_view_item,
+    ensure_can_view,
     ensure_owns_or_edit,
     get_current_org,
     get_current_user,
+    member_for,
     require_page_access,
 )
 from ..models import Board, BoardBox, Organization, TeamMember, User
@@ -75,6 +78,9 @@ def _summary(board: Board) -> BoardSummaryOut:
         updated_at=board.updated_at,
         box_count=len(board.boxes),
         open_task_count=open_tasks,
+        visibility=board.visibility,
+        visible_departments=board.visible_departments or [],
+        visible_members=board.visible_members or [],
     )
 
 
@@ -92,7 +98,12 @@ def list_boards(
     query = db.query(Board).filter(Board.organization_id == org.id)
     if scope == "mine":
         query = query.filter(Board.user_id == user.id)
-    boards = query.order_by(Board.date.desc(), Board.created_at.desc()).all()
+        boards = query.order_by(Board.date.desc(), Board.created_at.desc()).all()
+    else:
+        # Shared calendar feed: drop boards the viewer isn't in the audience for.
+        boards = query.order_by(Board.date.desc(), Board.created_at.desc()).all()
+        member = member_for(db, org, user)
+        boards = [b for b in boards if can_view_item(b, user, member)]
     return [_summary(b) for b in boards]
 
 
@@ -113,6 +124,9 @@ def create_board(
         user_id=user.id,
         date=body.date,
         title=(body.title or "Untitled board").strip() or "Untitled board",
+        visibility=body.visibility,
+        visible_departments=list(body.visible_departments),
+        visible_members=list(body.visible_members),
     )
     db.add(board)
     db.commit()
@@ -127,7 +141,9 @@ def get_board(
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> Board:
-    return _detail(_get_board(db, org, board_id), user)
+    board = _get_board(db, org, board_id)
+    ensure_can_view(db, org, user, board, "board")
+    return _detail(board, user)
 
 
 @router.patch("/boards/{board_id}", response_model=BoardSummaryOut)
@@ -140,8 +156,14 @@ def rename_board(
     db: Session = Depends(get_db),
 ) -> BoardSummaryOut:
     board = _get_board(db, org, board_id)
+    ensure_can_view(db, org, user, board, "board")
     ensure_owns_or_edit(level, board.user_id, user, "boards")
-    board.title = body.title.strip()
+    if body.title is not None:
+        board.title = body.title.strip()
+    if "visibility" in body.model_fields_set:
+        board.visibility = body.visibility
+        board.visible_departments = list(body.visible_departments)
+        board.visible_members = list(body.visible_members)
     db.commit()
     db.refresh(board)
     return _summary(board)
@@ -156,6 +178,7 @@ def delete_board(
     db: Session = Depends(get_db),
 ) -> None:
     board = _get_board(db, org, board_id)
+    ensure_can_view(db, org, user, board, "board")
     ensure_owns_or_edit(level, board.user_id, user, "boards")
     db.delete(board)
     db.commit()
@@ -171,6 +194,7 @@ def share_board(
     db: Session = Depends(get_db),
 ) -> BoardShareOut:
     board = _get_board(db, org, board_id)
+    ensure_can_view(db, org, user, board, "board")
     ensure_owns_or_edit(level, board.user_id, user, "boards")
     if not board.share_token:
         board.share_token = uuid.uuid4().hex
@@ -193,9 +217,19 @@ def copy_board(
     db: Session = Depends(get_db),
 ) -> BoardSummaryOut:
     source = _get_board(db, org, board_id)
+    ensure_can_view(db, org, user, source, "board")
     title = (body.title or source.title).strip() or source.title
-    # The copy belongs to whoever made it, not the source board's owner.
-    clone = Board(organization_id=org.id, user_id=user.id, date=body.date, title=title)
+    # The copy belongs to whoever made it, not the source board's owner, and
+    # keeps the source's audience so it starts out visible to the same people.
+    clone = Board(
+        organization_id=org.id,
+        user_id=user.id,
+        date=body.date,
+        title=title,
+        visibility=source.visibility,
+        visible_departments=list(source.visible_departments or []),
+        visible_members=list(source.visible_members or []),
+    )
     db.add(clone)
     db.flush()
     for b in source.boxes:
@@ -261,6 +295,7 @@ def add_box(
     db: Session = Depends(get_db),
 ) -> BoardBox:
     board = _get_board(db, org, board_id)
+    ensure_can_view(db, org, user, board, "board")
     ensure_owns_or_edit(level, board.user_id, user, "boards")
     box = BoardBox(
         board_id=board.id,
@@ -289,6 +324,7 @@ def update_box(
     db: Session = Depends(get_db),
 ) -> BoardBox:
     box = _get_box(db, org, box_id)
+    ensure_can_view(db, org, user, box.board, "board")
     ensure_owns_or_edit(level, box.board.user_id, user, "boards")
     for field, value in body.model_dump(exclude_unset=True).items():
         setattr(box, field, value)
@@ -306,6 +342,7 @@ def delete_box(
     db: Session = Depends(get_db),
 ) -> None:
     box = _get_box(db, org, box_id)
+    ensure_can_view(db, org, user, box.board, "board")
     ensure_owns_or_edit(level, box.board.user_id, user, "boards")
     db.delete(box)
     db.commit()

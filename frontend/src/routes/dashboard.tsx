@@ -15,6 +15,7 @@ import {
   ArrowUpRight,
   Clock,
   LayoutGrid,
+  UserRound,
 } from "lucide-react";
 import { format, isAfter, parseISO, startOfMonth, endOfMonth } from "date-fns";
 
@@ -23,10 +24,11 @@ export const Route = createFileRoute("/dashboard")({
 });
 
 function DashboardPage() {
-  // Personal lists use the user's own boards/meetings; the calendar widget uses
-  // the org-wide feed so it matches the shared Calendar page.
-  const { notes, team, organization, boards, meetings, calendarBoards, calendarMeetings } =
-    useStore();
+  // The dashboard lists show recent org-wide activity (with who created each
+  // item), matching the shared Calendar page; the calendar widget uses the same
+  // feed. Visibility is already applied server-side, so members only see items
+  // shared with them.
+  const { notes, team, organization, calendarBoards, calendarMeetings } = useStore();
   const [month, setMonth] = useState(new Date());
   const today = new Date();
 
@@ -66,11 +68,11 @@ function DashboardPage() {
     return m;
   }, [calendarMeetings]);
 
-  const recentBoards = [...boards]
+  const recentBoards = [...calendarBoards]
     .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
     .slice(0, 5);
 
-  const recentMeetings = [...meetings]
+  const recentMeetings = [...calendarMeetings]
     .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
     .slice(0, 5);
 
@@ -150,7 +152,15 @@ function DashboardPage() {
                         {format(parseISO(n.date), "d")}
                       </span>
                     </div>
-                    <p className="line-clamp-3 flex-1 text-sm leading-snug">{n.content}</p>
+                    <div className="min-w-0 flex-1">
+                      <p className="line-clamp-3 text-sm leading-snug">{n.content}</p>
+                      {n.creatorName && (
+                        <p className="mt-1 flex items-center gap-1 text-[11px] text-muted-foreground">
+                          <UserRound className="h-3 w-3 shrink-0" />
+                          <span className="truncate">{n.creatorName}</span>
+                        </p>
+                      )}
+                    </div>
                   </div>
                 ))
               )}
@@ -184,10 +194,19 @@ function DashboardPage() {
                     </div>
                     <div className="min-w-0 flex-1">
                       <p className="truncate text-sm font-semibold">{b.title}</p>
-                      <p className="mt-0.5 text-[11px] text-muted-foreground">
-                        {format(parseISO(b.date), "d MMM yyyy")} · {b.boxCount}{" "}
-                        {b.boxCount === 1 ? "box" : "boxes"}
-                      </p>
+                      <div className="mt-0.5 flex flex-wrap items-center gap-x-1.5 text-[11px] text-muted-foreground">
+                        <span>{format(parseISO(b.date), "d MMM yyyy")}</span>
+                        <span aria-hidden>·</span>
+                        <span>
+                          {b.boxCount} {b.boxCount === 1 ? "box" : "boxes"}
+                        </span>
+                        {b.creatorName && (
+                          <>
+                            <span aria-hidden>·</span>
+                            <span className="truncate">{b.creatorName}</span>
+                          </>
+                        )}
+                      </div>
                     </div>
                     <ArrowUpRight className="h-4 w-4 shrink-0 text-muted-foreground" />
                   </Link>
@@ -224,10 +243,21 @@ function DashboardPage() {
                     </div>
                     <div className="min-w-0 flex-1">
                       <p className="truncate text-sm font-semibold">{m.name}</p>
-                      <p className="mt-0.5 text-[11px] text-muted-foreground">
-                        {m.date ? `${format(parseISO(m.date), "d MMM yyyy")} · ` : ""}
-                        {m.schedule}
-                      </p>
+                      <div className="mt-0.5 flex flex-wrap items-center gap-x-1.5 text-[11px] text-muted-foreground">
+                        {m.date && (
+                          <>
+                            <span>{format(parseISO(m.date), "d MMM yyyy")}</span>
+                            <span aria-hidden>·</span>
+                          </>
+                        )}
+                        <span>{m.schedule}</span>
+                        {m.creatorName && (
+                          <>
+                            <span aria-hidden>·</span>
+                            <span className="truncate">{m.creatorName}</span>
+                          </>
+                        )}
+                      </div>
                     </div>
                     <ArrowUpRight className="h-4 w-4 shrink-0 text-muted-foreground" />
                   </Link>

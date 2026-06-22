@@ -4,6 +4,7 @@ import { AnimatePresence, motion } from "framer-motion";
 import {
   LayoutDashboard,
   Calendar,
+  NotebookPen,
   LayoutGrid,
   CalendarClock,
   LayoutTemplate,
@@ -44,6 +45,7 @@ import { cn } from "@/lib/utils";
 const nav = [
   { to: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
   { to: "/calendar", label: "Calendar", icon: Calendar },
+  { to: "/notes", label: "My Notes", icon: NotebookPen },
   { to: "/board", label: "My Board", icon: LayoutGrid },
   { to: "/meeting", label: "Meetings", icon: CalendarClock },
   { to: "/templates", label: "My Templates", icon: LayoutTemplate },

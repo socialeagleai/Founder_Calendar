@@ -3,9 +3,12 @@ from sqlalchemy.orm import Session
 
 from ..database import get_db
 from ..deps import (
+    can_view_item,
+    ensure_can_view,
     ensure_owns_or_edit,
     get_current_org,
     get_current_user,
+    member_for,
     require_page_access,
 )
 from ..models import Note, Organization, User
@@ -46,7 +49,10 @@ def list_notes(
         .order_by(Note.date, Note.created_at)
         .all()
     )
-    return [_out(n, user) for n in notes]
+    # Only return notes the viewer is allowed to see (creator, everyone, or
+    # targeted to their department/them). Resolve their membership once.
+    member = member_for(db, org, user)
+    return [_out(n, user) for n in notes if can_view_item(n, user, member)]
 
 
 @router.post(
@@ -61,8 +67,16 @@ def create_note(
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> Note:
-    # Notes stay org-wide (shared calendar); user_id records the creator.
-    note = Note(organization_id=org.id, user_id=user.id, date=body.date, content=body.content)
+    # user_id records the creator; visibility decides who else sees it.
+    note = Note(
+        organization_id=org.id,
+        user_id=user.id,
+        date=body.date,
+        content=body.content,
+        visibility=body.visibility,
+        visible_departments=list(body.visible_departments),
+        visible_members=list(body.visible_members),
+    )
     db.add(note)
     db.commit()
     db.refresh(note)
@@ -79,8 +93,15 @@ def update_note(
     db: Session = Depends(get_db),
 ) -> Note:
     note = _get_note(db, org, note_id)
+    ensure_can_view(db, org, user, note, "note")
     ensure_owns_or_edit(level, note.user_id, user, "notes")
     note.content = body.content
+    # Only the creator (or an editor) reaches here; apply audience if the client
+    # sent it (omitted -> leave the existing audience untouched).
+    if "visibility" in body.model_fields_set:
+        note.visibility = body.visibility
+        note.visible_departments = list(body.visible_departments)
+        note.visible_members = list(body.visible_members)
     db.commit()
     db.refresh(note)
     return _out(note, user)
@@ -95,6 +116,7 @@ def delete_note(
     db: Session = Depends(get_db),
 ) -> None:
     note = _get_note(db, org, note_id)
+    ensure_can_view(db, org, user, note, "note")
     ensure_owns_or_edit(level, note.user_id, user, "notes")
     db.delete(note)
     db.commit()

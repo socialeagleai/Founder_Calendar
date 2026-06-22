@@ -14,10 +14,12 @@
 
 import type {
   Access,
+  Audience,
   BoardDetail,
   BoardSummary,
   AppNotification,
   Box,
+  Department,
   Invitation,
   LeaveRequest,
   MeetingDetail,
@@ -178,16 +180,32 @@ export const api = {
   // ---- team ----
   getTeam: () => request<TeamMember[]>("/api/team"),
 
-  inviteMember: (name: string, email: string, role: Role, permissions: Permissions) =>
+  inviteMember: (
+    name: string,
+    email: string,
+    role: Role,
+    permissions: Permissions,
+    departmentId?: string | null,
+  ) =>
     request<TeamMember>("/api/team", {
       method: "POST",
-      body: { name, email, role, permissions },
+      body: { name, email, role, permissions, departmentId: departmentId ?? null },
     }),
 
-  updateMember: (id: string, patch: { role?: Role; permissions?: Permissions }) =>
-    request<TeamMember>(`/api/team/${id}`, { method: "PATCH", body: patch }),
+  updateMember: (
+    id: string,
+    patch: { role?: Role; permissions?: Permissions; departmentId?: string | null },
+  ) => request<TeamMember>(`/api/team/${id}`, { method: "PATCH", body: patch }),
 
   removeMember: (id: string) => request<void>(`/api/team/${id}`, { method: "DELETE" }),
+
+  // ---- departments ----
+  getDepartments: () => request<Department[]>("/api/departments"),
+
+  createDepartment: (name: string) =>
+    request<Department>("/api/departments", { method: "POST", body: { name } }),
+
+  deleteDepartment: (id: string) => request<void>(`/api/departments/${id}`, { method: "DELETE" }),
 
   // ---- invitations ----
   getInvitations: () => request<Invitation[]>("/api/invitations"),
@@ -216,11 +234,11 @@ export const api = {
   // ---- notes ----
   getNotes: () => request<Note[]>("/api/notes"),
 
-  createNote: (date: string, content: string) =>
-    request<Note>("/api/notes", { method: "POST", body: { date, content } }),
+  createNote: (date: string, content: string, audience?: Audience) =>
+    request<Note>("/api/notes", { method: "POST", body: { date, content, ...(audience ?? {}) } }),
 
-  updateNote: (id: string, content: string) =>
-    request<Note>(`/api/notes/${id}`, { method: "PUT", body: { content } }),
+  updateNote: (id: string, content: string, audience?: Audience) =>
+    request<Note>(`/api/notes/${id}`, { method: "PUT", body: { content, ...(audience ?? {}) } }),
 
   deleteNote: (id: string) => request<void>(`/api/notes/${id}`, { method: "DELETE" }),
 
@@ -230,13 +248,19 @@ export const api = {
   getBoards: (scope: "mine" | "org" = "mine") =>
     request<BoardSummary[]>(`/api/boards?scope=${scope}`),
 
-  createBoard: (date: string, title?: string) =>
-    request<BoardDetail>("/api/boards", { method: "POST", body: { date, title } }),
+  createBoard: (date: string, title?: string, audience?: Audience) =>
+    request<BoardDetail>("/api/boards", {
+      method: "POST",
+      body: { date, title, ...(audience ?? {}) },
+    }),
 
   getBoard: (id: string) => request<BoardDetail>(`/api/boards/${id}`),
 
   renameBoard: (id: string, title: string) =>
     request<BoardSummary>(`/api/boards/${id}`, { method: "PATCH", body: { title } }),
+
+  setBoardAudience: (id: string, audience: Audience) =>
+    request<BoardSummary>(`/api/boards/${id}`, { method: "PATCH", body: audience }),
 
   deleteBoard: (id: string) => request<void>(`/api/boards/${id}`, { method: "DELETE" }),
 
@@ -269,6 +293,12 @@ export const api = {
 
   updateMeeting: (id: string, patch: Partial<MeetingInput>) =>
     request<MeetingDetail>(`/api/meetings/${id}`, { method: "PATCH", body: patch }),
+
+  setMeetingAudience: (id: string, audience: Audience) =>
+    request<MeetingDetail>(`/api/meetings/${id}`, { method: "PATCH", body: audience }),
+
+  copyMeeting: (id: string, date: string, name?: string) =>
+    request<MeetingDetail>(`/api/meetings/${id}/copy`, { method: "POST", body: { date, name } }),
 
   deleteMeeting: (id: string) => request<void>(`/api/meetings/${id}`, { method: "DELETE" }),
 

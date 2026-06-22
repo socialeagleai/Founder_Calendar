@@ -98,6 +98,51 @@ def _member_of(db: Session, org: Organization, user: User) -> TeamMember | None:
     )
 
 
+# Public alias - routers resolve the viewer's membership once per request and
+# reuse it across many can_view_item() checks when filtering a feed.
+def member_for(db: Session, org: Organization, user: User) -> TeamMember | None:
+    return _member_of(db, org, user)
+
+
+def can_view_item(item, user: User, member: TeamMember | None) -> bool:
+    """Whether `user` may see a note/board/meeting given its audience settings.
+    `member` is the viewer's TeamMember row in the item's org (or None). The
+    creator always sees their own item; otherwise visibility decides:
+      - everyone:    anyone in the org
+      - private:     creator only
+      - departments: the viewer's department is in item.visible_departments
+      - members:     the viewer's TeamMember id is in item.visible_members
+    There is no owner/admin override - "private" is absolute."""
+    if item.user_id is not None and item.user_id == user.id:
+        return True
+    vis = getattr(item, "visibility", "everyone") or "everyone"
+    if vis == "everyone":
+        return True
+    if vis == "private":
+        return False
+    if member is None:
+        return False
+    if vis == "departments":
+        return bool(member.department_id) and member.department_id in (
+            item.visible_departments or []
+        )
+    if vis == "members":
+        return member.id in (item.visible_members or [])
+    return False
+
+
+def ensure_can_view(
+    db: Session, org: Organization, user: User, item, what: str
+) -> None:
+    """Raise 403 unless the caller may see this item. Used to gate mutations so a
+    member can never change (or even reach) a note/board/meeting that its audience
+    hides from them - viewing is a prerequisite for editing."""
+    if not can_view_item(item, user, member_for(db, org, user)):
+        raise HTTPException(
+            status.HTTP_403_FORBIDDEN, f"You don't have access to this {what}."
+        )
+
+
 def require_page_edit(page_key: str) -> Callable[..., None]:
     """Build a dependency that allows a write only if the caller can EDIT the
     given page. Owners always pass; members need permissions[page_key] == "edit".

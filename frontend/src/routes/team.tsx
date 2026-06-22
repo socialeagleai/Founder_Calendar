@@ -4,6 +4,7 @@ import { AppShell } from "@/components/app-shell";
 import {
   useStore,
   usePageAccess,
+  type Department,
   type PageAccess,
   type Permissions,
   type Role,
@@ -31,9 +32,13 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
-import { ShieldCheck, Trash2, UserPlus } from "lucide-react";
+import { Building2, Plus, ShieldCheck, Trash2, UserPlus, X } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
+
+// Sentinel used by the department <Select> for "no department" (shadcn Select
+// items cannot hold an empty-string value).
+const NO_DEPT = "__none__";
 
 export const Route = createFileRoute("/team")({
   component: TeamPage,
@@ -108,16 +113,19 @@ function PageAccessGrid({
 
 function InviteDialog() {
   const inviteMember = useStore((s) => s.inviteMember);
+  const departments = useStore((s) => s.departments);
   const [open, setOpen] = useState(false);
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [role, setRole] = useState<Role>("Member");
+  const [dept, setDept] = useState<string>(NO_DEPT);
   const [perms, setPerms] = useState<Permissions>({});
 
   const reset = () => {
     setName("");
     setEmail("");
     setRole("Member");
+    setDept(NO_DEPT);
     setPerms({});
   };
 
@@ -125,7 +133,13 @@ function InviteDialog() {
     e.preventDefault();
     if (!name.trim() || !email.trim()) return toast.error("Name and email required");
     try {
-      await inviteMember(name.trim(), email.trim(), role, perms);
+      await inviteMember(
+        name.trim(),
+        email.trim(),
+        role,
+        perms,
+        dept === NO_DEPT ? null : dept,
+      );
       toast.success(`Invited ${name}`);
       reset();
       setOpen(false);
@@ -171,17 +185,35 @@ function InviteDialog() {
               />
             </div>
           </div>
-          <div className="space-y-2">
-            <Label>Role</Label>
-            <Select value={role} onValueChange={(v) => setRole(v as Role)}>
-              <SelectTrigger>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="Admin">Admin</SelectItem>
-                <SelectItem value="Member">Member</SelectItem>
-              </SelectContent>
-            </Select>
+          <div className="grid grid-cols-2 gap-3">
+            <div className="space-y-2">
+              <Label>Role</Label>
+              <Select value={role} onValueChange={(v) => setRole(v as Role)}>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="Admin">Admin</SelectItem>
+                  <SelectItem value="Member">Member</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-2">
+              <Label>Department</Label>
+              <Select value={dept} onValueChange={setDept}>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value={NO_DEPT}>Unassigned</SelectItem>
+                  {departments.map((d) => (
+                    <SelectItem key={d.id} value={d.id}>
+                      {d.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
           </div>
           <PageAccessGrid value={perms} onChange={setPerms} />
           <DialogFooter>
@@ -248,6 +280,135 @@ function EditAccessDialog({ member }: { member: TeamMember }) {
   );
 }
 
+// Owner/admin tool to create and remove departments (HR, Operations, ...). The
+// list feeds the department selectors used when inviting or editing members.
+function DepartmentsCard() {
+  const departments = useStore((s) => s.departments);
+  const team = useStore((s) => s.team);
+  const createDepartment = useStore((s) => s.createDepartment);
+  const deleteDepartment = useStore((s) => s.deleteDepartment);
+  const [name, setName] = useState("");
+  const [saving, setSaving] = useState(false);
+
+  const add = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const trimmed = name.trim();
+    if (!trimmed) return;
+    setSaving(true);
+    try {
+      await createDepartment(trimmed);
+      setName("");
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Could not add department");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const remove = async (d: Department) => {
+    const count = team.filter((m) => m.departmentId === d.id).length;
+    if (count > 0 && !confirm(`Delete "${d.name}"? ${count} member${count === 1 ? "" : "s"} will become unassigned.`))
+      return;
+    try {
+      await deleteDepartment(d.id);
+      toast.success(`Removed ${d.name}`);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Could not remove department");
+    }
+  };
+
+  return (
+    <div className="mb-6 rounded-2xl border border-border bg-card p-5 shadow-soft">
+      <div className="mb-3 flex items-center gap-2">
+        <Building2 className="h-4 w-4 text-primary" />
+        <h2 className="text-sm font-bold uppercase tracking-widest text-muted-foreground">
+          Departments
+        </h2>
+      </div>
+      <p className="mb-4 text-sm text-muted-foreground">
+        Create groups like HR or Operations, then assign each teammate to one when you invite them.
+      </p>
+      <form onSubmit={add} className="mb-4 flex gap-2">
+        <Input
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          placeholder="New department name"
+          className="max-w-xs"
+        />
+        <Button
+          type="submit"
+          disabled={saving || !name.trim()}
+          className="bg-primary text-primary-foreground hover:bg-primary-dark"
+        >
+          <Plus className="h-4 w-4" /> Add
+        </Button>
+      </form>
+      {departments.length === 0 ? (
+        <p className="text-sm text-muted-foreground">No departments yet.</p>
+      ) : (
+        <div className="flex flex-wrap gap-2">
+          {departments.map((d) => {
+            const count = team.filter((m) => m.departmentId === d.id).length;
+            return (
+              <span
+                key={d.id}
+                className="inline-flex items-center gap-1.5 rounded-full border border-border bg-secondary/60 py-1 pl-3 pr-1.5 text-sm font-medium"
+              >
+                {d.name}
+                <span className="text-xs text-muted-foreground">({count})</span>
+                <button
+                  onClick={() => remove(d)}
+                  title={`Delete ${d.name}`}
+                  className="rounded-full p-1 text-muted-foreground hover:bg-accent hover:text-primary"
+                >
+                  <X className="h-3.5 w-3.5" />
+                </button>
+              </span>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// The department cell in the member table: an inline selector for editors, or a
+// plain label for view-only members.
+function DepartmentCell({ member, canEdit }: { member: TeamMember; canEdit: boolean }) {
+  const departments = useStore((s) => s.departments);
+  const updateMemberDepartment = useStore((s) => s.updateMemberDepartment);
+  const current = departments.find((d) => d.id === member.departmentId);
+
+  if (member.role === "Owner") return <span className="text-xs text-muted-foreground">-</span>;
+  if (!canEdit)
+    return (
+      <span className="text-xs text-muted-foreground">{current ? current.name : "Unassigned"}</span>
+    );
+
+  return (
+    <Select
+      value={member.departmentId ?? NO_DEPT}
+      onValueChange={(v) => {
+        void updateMemberDepartment(member.id, v === NO_DEPT ? null : v).catch((err) =>
+          toast.error(err instanceof Error ? err.message : "Could not update department"),
+        );
+      }}
+    >
+      <SelectTrigger className="h-8 w-[150px] text-xs">
+        <SelectValue />
+      </SelectTrigger>
+      <SelectContent>
+        <SelectItem value={NO_DEPT}>Unassigned</SelectItem>
+        {departments.map((d) => (
+          <SelectItem key={d.id} value={d.id}>
+            {d.name}
+          </SelectItem>
+        ))}
+      </SelectContent>
+    </Select>
+  );
+}
+
 function TeamPage() {
   const { team, updateMemberRole, removeMember } = useStore();
   const canEdit = usePageAccess("team") === "edit";
@@ -264,12 +425,15 @@ function TeamPage() {
         {canEdit && <InviteDialog />}
       </div>
 
+      {canEdit && <DepartmentsCard />}
+
       <div className="overflow-hidden rounded-2xl border border-border bg-card shadow-soft">
         <table className="w-full">
           <thead className="bg-secondary/60">
             <tr className="text-left text-[11px] font-bold uppercase tracking-widest text-muted-foreground">
               <th className="px-6 py-3.5">Member</th>
               <th className="px-6 py-3.5">Role</th>
+              <th className="px-6 py-3.5">Department</th>
               <th className="px-6 py-3.5">Access</th>
               <th className="px-6 py-3.5">Status</th>
               <th className="px-6 py-3.5 text-right">Actions</th>
@@ -320,6 +484,9 @@ function TeamPage() {
                         </SelectContent>
                       </Select>
                     )}
+                  </td>
+                  <td className="px-6 py-4">
+                    <DepartmentCell member={m} canEdit={canEdit} />
                   </td>
                   <td className="px-6 py-4">
                     {m.role === "Owner" ? (

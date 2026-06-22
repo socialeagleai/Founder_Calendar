@@ -24,8 +24,16 @@ export const PAGES: PageDef[] = [
 /** Pages whose access can be granted per-member (excludes mandatory ones). */
 export const ASSIGNABLE_PAGES: PageDef[] = PAGES.filter((p) => !p.mandatory);
 
+// Routes that reuse another page's access key instead of having their own
+// permission. "My Notes" is just a focused view of the calendar's notes, so it
+// follows "calendar" access (no separate toggle in the invite grid).
+const ROUTE_ALIASES: Record<string, string> = { "/notes": "calendar" };
+
 /** Resolve a route pathname (e.g. "/board") to its page key. */
 export function pageKeyForPath(pathname: string): string | null {
+  for (const [prefix, key] of Object.entries(ROUTE_ALIASES)) {
+    if (pathname === prefix || pathname.startsWith(prefix + "/")) return key;
+  }
   const match = PAGES.find((p) => pathname === p.to || pathname.startsWith(p.to + "/"));
   return match ? match.key : null;
 }

@@ -2,16 +2,19 @@ import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useMemo, useState } from "react";
 import { motion } from "framer-motion";
 import { format, parseISO } from "date-fns";
-import { ArrowLeft, CalendarClock, Clock, Pencil, Plus, Trash2 } from "lucide-react";
+import { ArrowLeft, CalendarClock, CalendarPlus, Clock, Pencil, Plus, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 
 import { AppShell } from "@/components/app-shell";
 import { MeetingEditor } from "@/components/meeting-editor";
 import { MeetingContent } from "@/components/meeting-content";
+import { AudiencePicker } from "@/components/audience-picker";
 import { Calendar } from "@/components/ui/calendar";
 import {
   useStore,
   usePageAccess,
+  EVERYONE_AUDIENCE,
+  type Audience,
   type MeetingInput,
   type MeetingSummary,
   type MeetingTemplateData,
@@ -81,6 +84,7 @@ function NewMeetingDialog({ onCreate }: { onCreate: (input: MeetingInput) => Pro
   const [tpl, setTpl] = useState<string>(BLANK_KEY);
   const [name, setName] = useState("");
   const [schedule, setSchedule] = useState<Schedule>("Weekly");
+  const [audience, setAudience] = useState<Audience>(EVERYONE_AUDIENCE);
   // The sections/duration carried by the currently picked template.
   const [picked, setPicked] = useState<MeetingTemplateData | null>(null);
 
@@ -91,6 +95,7 @@ function NewMeetingDialog({ onCreate }: { onCreate: (input: MeetingInput) => Pro
     setPicked(null);
     setName("");
     setSchedule("Weekly");
+    setAudience(EVERYONE_AUDIENCE);
   };
 
   const pickDate = (d: Date | undefined) => {
@@ -124,6 +129,9 @@ function NewMeetingDialog({ onCreate }: { onCreate: (input: MeetingInput) => Pro
       duration: picked?.duration ?? "",
       // Fresh ids so editing the new meeting never mutates the template.
       sections: picked ? cloneSections(picked.sections) : [],
+      visibility: audience.visibility,
+      visibleDepartments: audience.visibleDepartments,
+      visibleMembers: audience.visibleMembers,
     });
     setOpen(false);
   };
@@ -227,6 +235,12 @@ function NewMeetingDialog({ onCreate }: { onCreate: (input: MeetingInput) => Pro
                 </SelectContent>
               </Select>
             </div>
+            <div className="space-y-2">
+              <Label>Who can see this</Label>
+              <div>
+                <AudiencePicker value={audience} onChange={setAudience} />
+              </div>
+            </div>
             <DialogFooter>
               <Button
                 type="submit"
@@ -246,17 +260,21 @@ function MeetingCard({
   meeting,
   onOpen,
   onRename,
+  onCopy,
   onDelete,
   canEdit,
 }: {
   meeting: MeetingSummary;
   onOpen: (id: string) => void;
   onRename: (id: string, name: string) => Promise<void>;
+  onCopy: (id: string, date: string) => Promise<void>;
   onDelete: (id: string) => Promise<void>;
   canEdit: boolean;
 }) {
   const [renameOpen, setRenameOpen] = useState(false);
   const [name, setName] = useState(meeting.name);
+  const [copyOpen, setCopyOpen] = useState(false);
+  const [copyDate, setCopyDate] = useState<Date | undefined>(undefined);
 
   const submitRename = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -264,6 +282,13 @@ function MeetingCard({
     if (!t) return;
     await onRename(meeting.id, t);
     setRenameOpen(false);
+  };
+
+  const confirmCopy = async () => {
+    if (!copyDate) return;
+    await onCopy(meeting.id, format(copyDate, "yyyy-MM-dd"));
+    setCopyOpen(false);
+    setCopyDate(undefined);
   };
 
   const iconBtn =
@@ -315,6 +340,44 @@ function MeetingCard({
                     </Button>
                   </DialogFooter>
                 </form>
+              </DialogContent>
+            </Dialog>
+
+            <Dialog
+              open={copyOpen}
+              onOpenChange={(o) => {
+                setCopyOpen(o);
+                if (!o) setCopyDate(undefined);
+              }}
+            >
+              <DialogTrigger asChild>
+                <button title="Copy to date" className={iconBtn}>
+                  <CalendarPlus className="h-4 w-4" />
+                </button>
+              </DialogTrigger>
+              <DialogContent>
+                <DialogHeader>
+                  <DialogTitle>Copy meeting to a date</DialogTitle>
+                  <DialogDescription>
+                    Creates a copy of “{meeting.name}” - same agenda and audience - on the day you
+                    pick.
+                  </DialogDescription>
+                </DialogHeader>
+                <div className="flex justify-center">
+                  <Calendar mode="single" selected={copyDate} onSelect={setCopyDate} autoFocus />
+                </div>
+                <DialogFooter>
+                  <Button variant="outline" onClick={() => setCopyOpen(false)}>
+                    Cancel
+                  </Button>
+                  <Button
+                    disabled={!copyDate}
+                    onClick={confirmCopy}
+                    className="bg-primary text-primary-foreground hover:bg-primary-dark"
+                  >
+                    OK
+                  </Button>
+                </DialogFooter>
               </DialogContent>
             </Dialog>
 
@@ -377,7 +440,7 @@ function MeetingCard({
 function MeetingPage() {
   const navigate = useNavigate();
   const { meeting: selectedId, mode } = Route.useSearch();
-  const { meetings, createMeeting, renameMeeting, deleteMeeting } = useStore();
+  const { meetings, createMeeting, renameMeeting, copyMeeting, deleteMeeting } = useStore();
   // Every meeting on this page is the member's own, so view access is enough.
   const canEdit = usePageAccess("meeting") !== "none";
 
@@ -400,6 +463,15 @@ function MeetingPage() {
       toast.success("Meeting renamed");
     } catch {
       toast.error("Could not rename meeting");
+    }
+  };
+
+  const handleCopy = async (id: string, date: string) => {
+    try {
+      await copyMeeting(id, date);
+      toast.success(`Meeting copied to ${format(parseISO(date), "d MMM yyyy")}`);
+    } catch {
+      toast.error("Could not copy meeting");
     }
   };
 
@@ -461,6 +533,7 @@ function MeetingPage() {
               meeting={m}
               onOpen={openMeeting}
               onRename={handleRename}
+              onCopy={handleCopy}
               onDelete={handleDelete}
               canEdit={canEdit}
             />

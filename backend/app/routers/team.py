@@ -3,7 +3,7 @@ from sqlalchemy.orm import Session
 
 from ..database import get_db
 from ..deps import get_current_org, get_current_user, require_page_edit
-from ..models import Organization, TeamMember, User
+from ..models import Department, Organization, TeamMember, User
 from ..schemas import InviteMemberRequest, TeamMemberOut, UpdateRoleRequest
 
 router = APIRouter(prefix="/api/team", tags=["team"])
@@ -20,6 +20,17 @@ def _get_member(db: Session, org: Organization, member_id: str) -> TeamMember:
     if not member:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Member not found")
     return member
+
+
+def _validate_department(db: Session, org: Organization, dept_id: str) -> None:
+    """Ensure a department id belongs to this org before assigning a member to it."""
+    exists = (
+        db.query(Department)
+        .filter(Department.id == dept_id, Department.organization_id == org.id)
+        .first()
+    )
+    if not exists:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Unknown department")
 
 
 @router.get("", response_model=list[TeamMemberOut])
@@ -55,6 +66,8 @@ def invite_member(
     )
     if clash:
         raise HTTPException(status.HTTP_409_CONFLICT, "Member with this email already exists")
+    if body.department_id is not None:
+        _validate_department(db, org, body.department_id)
     member = TeamMember(
         organization_id=org.id,
         name=body.name,
@@ -62,6 +75,7 @@ def invite_member(
         role=body.role,
         status="Invited",
         permissions=dict(body.permissions),
+        department_id=body.department_id,
     )
     db.add(member)
     db.commit()
@@ -94,6 +108,12 @@ def update_member(
         member.role = body.role
     if body.permissions is not None:
         member.permissions = dict(body.permissions)
+    # Use fields_set so an explicit null means "unassign", while an omitted field
+    # leaves the current department untouched.
+    if "department_id" in body.model_fields_set:
+        if body.department_id is not None:
+            _validate_department(db, org, body.department_id)
+        member.department_id = body.department_id
     db.commit()
     db.refresh(member)
     return member

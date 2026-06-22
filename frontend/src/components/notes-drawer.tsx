@@ -3,7 +3,15 @@ import { useNavigate } from "@tanstack/react-router";
 import { format } from "date-fns";
 import { CalendarClock, Pencil, Trash2, X, Plus, Check, LayoutGrid, UserRound } from "lucide-react";
 import { useState, type ReactNode } from "react";
-import { useStore, usePageAccess, type Note } from "@/lib/store";
+import {
+  useStore,
+  usePageAccess,
+  audienceOf,
+  EVERYONE_AUDIENCE,
+  type Audience,
+  type Note,
+} from "@/lib/store";
+import { AudiencePicker, AudienceIcon, audienceSummary } from "@/components/audience-picker";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
@@ -47,6 +55,7 @@ export function NotesDrawer({ date, onClose }: Props) {
 
   const [editingId, setEditingId] = useState<string | null>(null);
   const [draft, setDraft] = useState("");
+  const [draftAudience, setDraftAudience] = useState<Audience>(EVERYONE_AUDIENCE);
   const [adding, setAdding] = useState(false);
 
   // Open (or create) the board for this date and jump into the editor.
@@ -96,22 +105,25 @@ export function NotesDrawer({ date, onClose }: Props) {
   const startEdit = (n: Note) => {
     setEditingId(n.id);
     setDraft(n.content);
+    setDraftAudience(audienceOf(n));
     setAdding(false);
   };
   const startAdd = () => {
     setEditingId(null);
     setDraft("");
+    setDraftAudience(EVERYONE_AUDIENCE);
     setAdding(true);
   };
   const cancel = () => {
     setEditingId(null);
     setDraft("");
+    setDraftAudience(EVERYONE_AUDIENCE);
     setAdding(false);
   };
   const save = async () => {
     if (!draft.trim()) return toast.error("Note can't be empty");
     try {
-      await saveNote(dateKey, draft.trim(), editingId ?? undefined);
+      await saveNote(dateKey, draft.trim(), editingId ?? undefined, draftAudience);
       toast.success(editingId ? "Note updated" : "Note saved");
       cancel();
     } catch (err) {
@@ -192,6 +204,8 @@ export function NotesDrawer({ date, onClose }: Props) {
                       key={n.id}
                       value={draft}
                       onChange={setDraft}
+                      audience={draftAudience}
+                      onAudienceChange={setDraftAudience}
                       onSave={save}
                       onCancel={cancel}
                     />
@@ -204,6 +218,7 @@ export function NotesDrawer({ date, onClose }: Props) {
                             {format(new Date(n.updatedAt), "h:mm a")}
                           </span>
                           <div className="flex min-w-0 items-center gap-2">
+                            <AudienceTag item={n} />
                             <CreatorBadge name={n.creatorName} />
                             {canEditNote(n) && (
                               <div className="flex shrink-0 gap-1 opacity-0 transition-opacity group-hover:opacity-100">
@@ -240,7 +255,14 @@ export function NotesDrawer({ date, onClose }: Props) {
                 )}
 
                 {adding && (
-                  <Editor value={draft} onChange={setDraft} onSave={save} onCancel={cancel} />
+                  <Editor
+                    value={draft}
+                    onChange={setDraft}
+                    audience={draftAudience}
+                    onAudienceChange={setDraftAudience}
+                    onSave={save}
+                    onCancel={cancel}
+                  />
                 )}
 
                 {dayBoards.length > 0 && (
@@ -265,6 +287,7 @@ export function NotesDrawer({ date, onClose }: Props) {
                                 {b.openTaskCount > 0 ? ` · ${b.openTaskCount} open` : ""}
                               </p>
                             </div>
+                            <AudienceTag item={b} />
                             <CreatorBadge name={b.creatorName} />
                           </button>
                         </HoverMeta>
@@ -295,6 +318,7 @@ export function NotesDrawer({ date, onClose }: Props) {
                                 {m.duration ? ` · ${m.duration}` : ""}
                               </p>
                             </div>
+                            <AudienceTag item={m} />
                             <CreatorBadge name={m.creatorName} />
                           </button>
                         </HoverMeta>
@@ -349,6 +373,22 @@ function HoverMeta({ createdAt, children }: { createdAt: string; children: React
   );
 }
 
+/** A tiny icon shown on restricted (non-"everyone") items, with the audience as
+ *  its tooltip. Hidden for org-wide items to keep the calendar uncluttered. */
+function AudienceTag({ item }: { item: Audience }) {
+  const departments = useStore((s) => s.departments);
+  const team = useStore((s) => s.team);
+  if (item.visibility === "everyone") return null;
+  return (
+    <span
+      title={`Visible to: ${audienceSummary(item, departments, team)}`}
+      className="inline-flex shrink-0 items-center text-muted-foreground"
+    >
+      <AudienceIcon visibility={item.visibility} className="h-3 w-3" />
+    </span>
+  );
+}
+
 /** Small right-aligned chip showing who added a note / board / meeting. */
 function CreatorBadge({ name }: { name?: string | null }) {
   if (!name) return null;
@@ -366,11 +406,15 @@ function CreatorBadge({ name }: { name?: string | null }) {
 function Editor({
   value,
   onChange,
+  audience,
+  onAudienceChange,
   onSave,
   onCancel,
 }: {
   value: string;
   onChange: (v: string) => void;
+  audience: Audience;
+  onAudienceChange: (a: Audience) => void;
   onSave: () => void;
   onCancel: () => void;
 }) {
@@ -384,17 +428,20 @@ function Editor({
         placeholder="What needs to happen on this day?"
         className="resize-none border-0 px-1 text-sm shadow-none focus-visible:ring-0"
       />
-      <div className="mt-2 flex justify-end gap-2">
-        <Button variant="ghost" size="sm" onClick={onCancel}>
-          Cancel
-        </Button>
-        <Button
-          size="sm"
-          onClick={onSave}
-          className="bg-primary text-primary-foreground hover:bg-primary-dark"
-        >
-          <Check className="h-3.5 w-3.5" /> Save Note
-        </Button>
+      <div className="mt-2 flex items-center justify-between gap-2">
+        <AudiencePicker value={audience} onChange={onAudienceChange} />
+        <div className="flex gap-2">
+          <Button variant="ghost" size="sm" onClick={onCancel}>
+            Cancel
+          </Button>
+          <Button
+            size="sm"
+            onClick={onSave}
+            className="bg-primary text-primary-foreground hover:bg-primary-dark"
+          >
+            <Check className="h-3.5 w-3.5" /> Save Note
+          </Button>
+        </div>
       </div>
     </div>
   );

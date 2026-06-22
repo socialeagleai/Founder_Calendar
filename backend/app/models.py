@@ -108,11 +108,33 @@ class TeamMember(Base):
     # Per-page access map: { "<page-key>": "view" | "edit" }. Pages absent from
     # the map are not accessible to this member. Owners have implicit full access.
     permissions: Mapped[dict] = mapped_column(JSON, default=dict, nullable=False)
+    # Optional department/group the member belongs to (e.g. HR, Operations).
+    # Nulled out automatically if the department is deleted.
+    department_id: Mapped[str | None] = mapped_column(
+        ForeignKey("departments.id", ondelete="SET NULL"), index=True, nullable=True
+    )
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
 
     organization: Mapped[Organization] = relationship(back_populates="team")
+    department: Mapped["Department | None"] = relationship(lazy="selectin")
 
     __table_args__ = (UniqueConstraint("organization_id", "email", name="uq_team_org_email"),)
+
+
+class Department(Base):
+    """A team grouping inside an organization (e.g. HR, Operations). Members can
+    be assigned to one department; owners/admins manage the list on the Team page."""
+
+    __tablename__ = "departments"
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=_uuid)
+    organization_id: Mapped[str] = mapped_column(
+        ForeignKey("organizations.id", ondelete="CASCADE"), index=True, nullable=False
+    )
+    name: Mapped[str] = mapped_column(String(255), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
+
+    __table_args__ = (UniqueConstraint("organization_id", "name", name="uq_department_org_name"),)
 
 
 class Note(Base):
@@ -129,6 +151,13 @@ class Note(Base):
     )
     date: Mapped[str] = mapped_column(String(10), index=True, nullable=False)  # YYYY-MM-DD
     content: Mapped[str] = mapped_column(Text, nullable=False)
+    # Audience control. visibility is one of: "everyone" (whole org), "departments"
+    # (only members in visible_departments), "members" (only the TeamMembers in
+    # visible_members), or "private" (creator only). The creator always sees their
+    # own item regardless. Applied uniformly to notes/boards/meetings.
+    visibility: Mapped[str] = mapped_column(String(16), default="everyone", nullable=False)
+    visible_departments: Mapped[list] = mapped_column(JSON, default=list, nullable=False)
+    visible_members: Mapped[list] = mapped_column(JSON, default=list, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now, onupdate=_now)
 
@@ -159,6 +188,10 @@ class Board(Base):
     share_token: Mapped[str | None] = mapped_column(
         String(40), unique=True, index=True, nullable=True
     )
+    # Audience control (see Note.visibility).
+    visibility: Mapped[str] = mapped_column(String(16), default="everyone", nullable=False)
+    visible_departments: Mapped[list] = mapped_column(JSON, default=list, nullable=False)
+    visible_members: Mapped[list] = mapped_column(JSON, default=list, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now, onupdate=_now)
 
@@ -246,6 +279,10 @@ class Meeting(Base):
     schedule: Mapped[str] = mapped_column(String(20), default="Weekly", nullable=False)
     duration: Mapped[str] = mapped_column(String(60), default="", nullable=False)
     sections: Mapped[list] = mapped_column(JSON, default=list, nullable=False)
+    # Audience control (see Note.visibility).
+    visibility: Mapped[str] = mapped_column(String(16), default="everyone", nullable=False)
+    visible_departments: Mapped[list] = mapped_column(JSON, default=list, nullable=False)
+    visible_members: Mapped[list] = mapped_column(JSON, default=list, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now, onupdate=_now)
 

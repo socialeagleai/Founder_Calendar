@@ -9,6 +9,7 @@ from .database import Base, engine
 from .routers import (
     auth,
     boards,
+    departments,
     invitations,
     leave_requests,
     meetings,
@@ -39,6 +40,11 @@ def _run_lightweight_migrations() -> None:
                 conn.execute(
                     text("ALTER TABLE team_members ADD COLUMN permissions JSON NOT NULL DEFAULT '{}'")
                 )
+        if "department_id" not in cols:
+            with engine.begin() as conn:
+                conn.execute(
+                    text("ALTER TABLE team_members ADD COLUMN department_id VARCHAR(32)")
+                )
     if "board_boxes" in inspector.get_table_names():
         cols = {c["name"] for c in inspector.get_columns("board_boxes")}
         if "tasks" not in cols:
@@ -63,6 +69,35 @@ def _run_lightweight_migrations() -> None:
                     "ON organizations (owner_id)"
                 )
             )
+
+    # Audience/visibility controls on notes, boards and meetings. Existing rows
+    # default to "everyone" (their current behaviour) with empty target lists.
+    for table in ("notes", "boards", "meetings"):
+        if table not in inspector.get_table_names():
+            continue
+        cols = {c["name"] for c in inspector.get_columns(table)}
+        with engine.begin() as conn:
+            if "visibility" not in cols:
+                conn.execute(
+                    text(
+                        f"ALTER TABLE {table} ADD COLUMN visibility "
+                        "VARCHAR(16) NOT NULL DEFAULT 'everyone'"
+                    )
+                )
+            if "visible_departments" not in cols:
+                conn.execute(
+                    text(
+                        f"ALTER TABLE {table} ADD COLUMN visible_departments "
+                        "JSON NOT NULL DEFAULT '[]'"
+                    )
+                )
+            if "visible_members" not in cols:
+                conn.execute(
+                    text(
+                        f"ALTER TABLE {table} ADD COLUMN visible_members "
+                        "JSON NOT NULL DEFAULT '[]'"
+                    )
+                )
 
     # Per-user ownership of boards/meetings/templates/notes. Backfill existing
     # rows to the organization owner so pre-existing data keeps a creator.
@@ -109,6 +144,7 @@ app.add_middleware(
 app.include_router(auth.router)
 app.include_router(organization.router)
 app.include_router(team.router)
+app.include_router(departments.router)
 app.include_router(invitations.router)
 app.include_router(leave_requests.router)
 app.include_router(notifications.router)

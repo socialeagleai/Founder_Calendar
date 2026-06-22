@@ -6,11 +6,15 @@ import { api } from "@/lib/api";
 import {
   useStore,
   usePageAccess,
+  audienceOf,
+  EVERYONE_AUDIENCE,
+  type Audience,
   type MeetingDetail,
   type MeetingSection,
   type Schedule,
   type SectionType,
 } from "@/lib/store";
+import { AudiencePicker, AudienceIcon, audienceSummary } from "@/components/audience-picker";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -77,7 +81,13 @@ export function MeetingEditor({
   const [schedule, setSchedule] = useState<Schedule>("Weekly");
   const [duration, setDuration] = useState("");
   const [sections, setSections] = useState<MeetingSection[]>([]);
+  // The list item to focus next (the one just created by pressing Enter).
+  const [focusId, setFocusId] = useState<string | null>(null);
+  const itemRefs = useRef<Record<string, HTMLInputElement | null>>({});
+  const [audience, setAudience] = useState<Audience>(EVERYONE_AUDIENCE);
   const [loading, setLoading] = useState(true);
+  const departments = useStore((s) => s.departments);
+  const team = useStore((s) => s.team);
   // "edit" access can change anyone's meeting; "view" can only edit their own.
   const level = usePageAccess("meeting");
   const canEdit = level === "edit" || meeting?.mine === true;
@@ -118,6 +128,7 @@ export function MeetingEditor({
         setSchedule(m.schedule);
         setDuration(m.duration);
         setSections(m.sections);
+        setAudience(audienceOf(m));
       })
       .catch(() => {
         if (!active) return;
@@ -179,6 +190,38 @@ export function MeetingEditor({
       ),
     );
     scheduleSave();
+  };
+  // Insert a new item right after `afterItemId` (same indent level) - used when
+  // the user presses Enter to keep writing the next bullet/numbered point.
+  const addItemAfter = (sectionId: string, afterItemId: string, level: number) => {
+    const newId = uid();
+    setSections((prev) =>
+      prev.map((s) => {
+        if (s.id !== sectionId) return s;
+        const idx = s.items.findIndex((it) => it.id === afterItemId);
+        const items = [...s.items];
+        items.splice(idx + 1, 0, { id: newId, text: "", level });
+        return { ...s, items };
+      }),
+    );
+    setFocusId(newId);
+    scheduleSave();
+  };
+
+  // Move the cursor into a freshly inserted item once it has rendered.
+  useEffect(() => {
+    if (focusId && itemRefs.current[focusId]) {
+      itemRefs.current[focusId]?.focus();
+      setFocusId(null);
+    }
+  }, [focusId, sections]);
+
+  const changeAudience = (next: Audience) => {
+    setAudience(next);
+    useStore
+      .getState()
+      .setMeetingAudience(meetingId, next)
+      .catch(() => toast.error("Could not update visibility"));
   };
 
   if (loading || !meeting) {
@@ -276,6 +319,15 @@ export function MeetingEditor({
             />
           )}
         </div>
+        {/* Audience */}
+        {!readOnly && canEdit ? (
+          <AudiencePicker value={audience} onChange={changeAudience} align="end" />
+        ) : (
+          <span className="inline-flex items-center gap-1.5 rounded-full bg-accent px-3 py-1 text-xs font-semibold text-primary">
+            <AudienceIcon visibility={audience.visibility} className="h-3.5 w-3.5" />
+            {audienceSummary(audience, departments, team)}
+          </span>
+        )}
       </div>
 
       {/* Sections */}
@@ -382,8 +434,24 @@ export function MeetingEditor({
                       </span>
                     ) : (
                       <input
+                        ref={(el) => {
+                          itemRefs.current[item.id] = el;
+                        }}
                         value={item.text}
                         onChange={(e) => patchItem(section.id, item.id, { text: e.target.value })}
+                        onKeyDown={(e) => {
+                          // Enter starts the next point; Backspace on an empty
+                          // line removes it and hops back to the previous one.
+                          if (e.key === "Enter") {
+                            e.preventDefault();
+                            addItemAfter(section.id, item.id, item.level);
+                          } else if (e.key === "Backspace" && item.text === "") {
+                            e.preventDefault();
+                            const idx = section.items.findIndex((it) => it.id === item.id);
+                            if (idx > 0) setFocusId(section.items[idx - 1].id);
+                            removeItem(section.id, item.id);
+                          }
+                        }}
                         placeholder={isHeader ? "Sub-header…" : "List item…"}
                         className={cn(
                           "min-w-0 flex-1 bg-transparent text-sm outline-none placeholder:text-muted-foreground/40",

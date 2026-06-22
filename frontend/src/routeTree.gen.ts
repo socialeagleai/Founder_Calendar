@@ -16,6 +16,7 @@ import { Route as SettingsRouteImport } from './routes/settings'
 import { Route as ResetPasswordRouteImport } from './routes/reset-password'
 import { Route as OrganizationRouteImport } from './routes/organization'
 import { Route as OnboardingRouteImport } from './routes/onboarding'
+import { Route as NotesRouteImport } from './routes/notes'
 import { Route as MeetingRouteImport } from './routes/meeting'
 import { Route as LoginRouteImport } from './routes/login'
 import { Route as ForgotPasswordRouteImport } from './routes/forgot-password'
@@ -58,6 +59,11 @@ const OrganizationRoute = OrganizationRouteImport.update({
 const OnboardingRoute = OnboardingRouteImport.update({
   id: '/onboarding',
   path: '/onboarding',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const NotesRoute = NotesRouteImport.update({
+  id: '/notes',
+  path: '/notes',
   getParentRoute: () => rootRouteImport,
 } as any)
 const MeetingRoute = MeetingRouteImport.update({
@@ -109,6 +115,7 @@ export interface FileRoutesByFullPath {
   '/forgot-password': typeof ForgotPasswordRoute
   '/login': typeof LoginRoute
   '/meeting': typeof MeetingRoute
+  '/notes': typeof NotesRoute
   '/onboarding': typeof OnboardingRoute
   '/organization': typeof OrganizationRoute
   '/reset-password': typeof ResetPasswordRoute
@@ -126,6 +133,7 @@ export interface FileRoutesByTo {
   '/forgot-password': typeof ForgotPasswordRoute
   '/login': typeof LoginRoute
   '/meeting': typeof MeetingRoute
+  '/notes': typeof NotesRoute
   '/onboarding': typeof OnboardingRoute
   '/organization': typeof OrganizationRoute
   '/reset-password': typeof ResetPasswordRoute
@@ -144,6 +152,7 @@ export interface FileRoutesById {
   '/forgot-password': typeof ForgotPasswordRoute
   '/login': typeof LoginRoute
   '/meeting': typeof MeetingRoute
+  '/notes': typeof NotesRoute
   '/onboarding': typeof OnboardingRoute
   '/organization': typeof OrganizationRoute
   '/reset-password': typeof ResetPasswordRoute
@@ -163,6 +172,7 @@ export interface FileRouteTypes {
     | '/forgot-password'
     | '/login'
     | '/meeting'
+    | '/notes'
     | '/onboarding'
     | '/organization'
     | '/reset-password'
@@ -180,6 +190,7 @@ export interface FileRouteTypes {
     | '/forgot-password'
     | '/login'
     | '/meeting'
+    | '/notes'
     | '/onboarding'
     | '/organization'
     | '/reset-password'
@@ -197,6 +208,7 @@ export interface FileRouteTypes {
     | '/forgot-password'
     | '/login'
     | '/meeting'
+    | '/notes'
     | '/onboarding'
     | '/organization'
     | '/reset-password'
@@ -215,6 +227,7 @@ export interface RootRouteChildren {
   ForgotPasswordRoute: typeof ForgotPasswordRoute
   LoginRoute: typeof LoginRoute
   MeetingRoute: typeof MeetingRoute
+  NotesRoute: typeof NotesRoute
   OnboardingRoute: typeof OnboardingRoute
   OrganizationRoute: typeof OrganizationRoute
   ResetPasswordRoute: typeof ResetPasswordRoute
@@ -274,6 +287,13 @@ declare module '@tanstack/react-router' {
       path: '/onboarding'
       fullPath: '/onboarding'
       preLoaderRoute: typeof OnboardingRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/notes': {
+      id: '/notes'
+      path: '/notes'
+      fullPath: '/notes'
+      preLoaderRoute: typeof NotesRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/meeting': {
@@ -343,6 +363,7 @@ const rootRouteChildren: RootRouteChildren = {
   ForgotPasswordRoute: ForgotPasswordRoute,
   LoginRoute: LoginRoute,
   MeetingRoute: MeetingRoute,
+  NotesRoute: NotesRoute,
   OnboardingRoute: OnboardingRoute,
   OrganizationRoute: OrganizationRoute,
   ResetPasswordRoute: ResetPasswordRoute,
