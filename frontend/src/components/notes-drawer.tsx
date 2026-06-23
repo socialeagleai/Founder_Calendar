@@ -11,12 +11,7 @@ import {
   type Audience,
   type Note,
 } from "@/lib/store";
-import {
-  AudiencePicker,
-  AudienceIcon,
-  audienceSummary,
-  isAudienceComplete,
-} from "@/components/audience-picker";
+import { AudiencePicker, isAudienceComplete } from "@/components/audience-picker";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
@@ -223,7 +218,6 @@ export function NotesDrawer({ date, onClose }: Props) {
                             {format(new Date(n.updatedAt), "h:mm a")}
                           </span>
                           <div className="flex min-w-0 items-center gap-2">
-                            <AudienceTag item={n} />
                             <CreatorBadge name={n.creatorName} />
                             {canEditNote(n) && (
                               <div className="flex shrink-0 gap-1 opacity-0 transition-opacity group-hover:opacity-100">
@@ -292,7 +286,6 @@ export function NotesDrawer({ date, onClose }: Props) {
                                 {b.openTaskCount > 0 ? ` · ${b.openTaskCount} open` : ""}
                               </p>
                             </div>
-                            <AudienceTag item={b} />
                             <CreatorBadge name={b.creatorName} />
                           </button>
                         </HoverMeta>
@@ -323,7 +316,6 @@ export function NotesDrawer({ date, onClose }: Props) {
                                 {m.duration ? ` · ${m.duration}` : ""}
                               </p>
                             </div>
-                            <AudienceTag item={m} />
                             <CreatorBadge name={m.creatorName} />
                           </button>
                         </HoverMeta>
@@ -375,22 +367,6 @@ function HoverMeta({ createdAt, children }: { createdAt: string; children: React
         {format(new Date(createdAt), "d MMM yyyy 'at' h:mm a")}
       </TooltipContent>
     </Tooltip>
-  );
-}
-
-/** A tiny icon shown on restricted (non-"everyone") items, with the audience as
- *  its tooltip. Hidden for org-wide items to keep the calendar uncluttered. */
-function AudienceTag({ item }: { item: Audience }) {
-  const departments = useStore((s) => s.departments);
-  const team = useStore((s) => s.team);
-  if (item.visibility === "everyone") return null;
-  return (
-    <span
-      title={`Visible to: ${audienceSummary(item, departments, team)}`}
-      className="inline-flex shrink-0 items-center text-muted-foreground"
-    >
-      <AudienceIcon visibility={item.visibility} className="h-3 w-3" />
-    </span>
   );
 }
 

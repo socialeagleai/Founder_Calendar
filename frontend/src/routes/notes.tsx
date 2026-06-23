@@ -6,12 +6,7 @@ import { CalendarPlus, NotebookPen, Pencil, Plus, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 
 import { AppShell } from "@/components/app-shell";
-import {
-  AudiencePicker,
-  AudienceIcon,
-  audienceSummary,
-  isAudienceComplete,
-} from "@/components/audience-picker";
+import { AudiencePicker, isAudienceComplete } from "@/components/audience-picker";
 import {
   useStore,
   usePageAccess,
@@ -283,9 +278,6 @@ function NoteCard({
   canEdit: boolean;
   onDelete: (id: string) => Promise<void>;
 }) {
-  const departments = useStore((s) => s.departments);
-  const team = useStore((s) => s.team);
-
   return (
     <motion.div
       variants={cardItem}
@@ -332,10 +324,6 @@ function NoteCard({
       <p className="mt-1.5 line-clamp-5 whitespace-pre-wrap text-sm leading-relaxed">
         {note.content}
       </p>
-      <div className="mt-4 flex items-center gap-1.5 border-t border-border pt-3 text-[11px] text-muted-foreground">
-        <AudienceIcon visibility={note.visibility} className="h-3.5 w-3.5 text-primary" />
-        <span className="truncate">{audienceSummary(note, departments, team)}</span>
-      </div>
     </motion.div>
   );
 }

@@ -67,7 +67,7 @@ export function MonthCalendar({
   }
 
   return (
-    <div className="flex h-full flex-col rounded-2xl border border-border bg-card shadow-soft">
+    <div className="flex h-full flex-col overflow-hidden rounded-2xl border border-border bg-card shadow-soft">
       <div className="flex items-center justify-between border-b border-border px-5 py-4">
         <div>
           <h2 className={cn("font-bold tracking-tight", compact ? "text-base" : "text-2xl")}>

@@ -14,12 +14,7 @@ import {
   type Schedule,
   type SectionType,
 } from "@/lib/store";
-import {
-  AudiencePicker,
-  AudienceIcon,
-  audienceSummary,
-  isAudienceComplete,
-} from "@/components/audience-picker";
+import { AudiencePicker, isAudienceComplete } from "@/components/audience-picker";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -91,8 +86,6 @@ export function MeetingEditor({
   const itemRefs = useRef<Record<string, HTMLInputElement | null>>({});
   const [audience, setAudience] = useState<Audience>(EVERYONE_AUDIENCE);
   const [loading, setLoading] = useState(true);
-  const departments = useStore((s) => s.departments);
-  const team = useStore((s) => s.team);
   // "edit" access can change anyone's meeting; "view" can only edit their own.
   const level = usePageAccess("meeting");
   const canEdit = level === "edit" || meeting?.mine === true;
@@ -328,14 +321,10 @@ export function MeetingEditor({
             />
           )}
         </div>
-        {/* Audience */}
-        {!readOnly && canEdit ? (
+        {/* Audience - the picker is shown only to editors; the chosen audience
+            isn't displayed back to viewers. */}
+        {!readOnly && canEdit && (
           <AudiencePicker value={audience} onChange={changeAudience} align="end" />
-        ) : (
-          <span className="inline-flex items-center gap-1.5 rounded-full bg-accent px-3 py-1 text-xs font-semibold text-primary">
-            <AudienceIcon visibility={audience.visibility} className="h-3.5 w-3.5" />
-            {audienceSummary(audience, departments, team)}
-          </span>
         )}
       </div>
 

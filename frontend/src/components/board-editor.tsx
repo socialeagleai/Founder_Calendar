@@ -17,12 +17,7 @@ import {
 } from "@/lib/store";
 import { isBoardData, layoutBoxes, nextFreeSlot } from "@/lib/template-utils";
 import { BoardCanvas, type CardHandlers } from "@/components/board-canvas";
-import {
-  AudiencePicker,
-  AudienceIcon,
-  audienceSummary,
-  isAudienceComplete,
-} from "@/components/audience-picker";
+import { AudiencePicker, isAudienceComplete } from "@/components/audience-picker";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -58,8 +53,6 @@ export function BoardEditor({
   const [title, setTitle] = useState("");
   const [audience, setAudience] = useState<Audience>(EVERYONE_AUDIENCE);
   const [loading, setLoading] = useState(true);
-  const departments = useStore((s) => s.departments);
-  const team = useStore((s) => s.team);
   // "edit" access can change anyone's board; "view" can only edit their own.
   const level = usePageAccess("board");
   const canEdit = level === "edit" || board?.mine === true;
@@ -263,15 +256,9 @@ export function BoardEditor({
           </DropdownMenu>
         )}
 
-        {/* Audience - who can see this board on the shared calendar. */}
-        {canEdit ? (
-          <AudiencePicker value={audience} onChange={changeAudience} align="end" />
-        ) : (
-          <span className="inline-flex items-center gap-1.5 rounded-full bg-accent px-3 py-1 text-xs font-semibold text-primary">
-            <AudienceIcon visibility={audience.visibility} className="h-3.5 w-3.5" />
-            {audienceSummary(audience, departments, team)}
-          </span>
-        )}
+        {/* Audience - who can see this board on the shared calendar. The picker
+            is shown only to editors; the chosen audience isn't displayed back. */}
+        {canEdit && <AudiencePicker value={audience} onChange={changeAudience} align="end" />}
 
         {/* View / Editor mode toggle - only when the member can edit. */}
         {canEdit && (
