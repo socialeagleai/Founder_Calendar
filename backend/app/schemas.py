@@ -1,7 +1,7 @@
 from datetime import datetime
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, EmailStr, Field
+from pydantic import BaseModel, ConfigDict, EmailStr, Field, model_validator
 from pydantic.alias_generators import to_camel
 
 Role = Literal["Owner", "Admin", "Member"]
@@ -34,6 +34,16 @@ class AudienceRequest(BaseModel):
     visibility: Visibility = "everyone"
     visible_departments: list[str] = []
     visible_members: list[str] = []
+
+    @model_validator(mode="after")
+    def _require_targets(self) -> "AudienceRequest":
+        # "Departments"/"Specific people" are meaningless without at least one
+        # target - reject so an item can't be saved visible to no one.
+        if self.visibility == "departments" and not self.visible_departments:
+            raise ValueError("Select at least one department")
+        if self.visibility == "members" and not self.visible_members:
+            raise ValueError("Select at least one person")
+        return self
 
 
 class AudienceOut(CamelModel):

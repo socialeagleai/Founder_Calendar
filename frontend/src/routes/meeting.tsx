@@ -8,7 +8,7 @@ import { toast } from "sonner";
 import { AppShell } from "@/components/app-shell";
 import { MeetingEditor } from "@/components/meeting-editor";
 import { MeetingContent } from "@/components/meeting-content";
-import { AudiencePicker } from "@/components/audience-picker";
+import { AudiencePicker, isAudienceComplete } from "@/components/audience-picker";
 import { Calendar } from "@/components/ui/calendar";
 import {
   useStore,
@@ -122,6 +122,8 @@ function NewMeetingDialog({ onCreate }: { onCreate: (input: MeetingInput) => Pro
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!date) return;
+    if (!isAudienceComplete(audience))
+      return toast.error("Select at least one department or person, or change who can see this");
     await onCreate({
       name: name.trim() || "Untitled meeting",
       date: format(date, "yyyy-MM-dd"),
@@ -244,6 +246,7 @@ function NewMeetingDialog({ onCreate }: { onCreate: (input: MeetingInput) => Pro
             <DialogFooter>
               <Button
                 type="submit"
+                disabled={!isAudienceComplete(audience)}
                 className="bg-primary text-primary-foreground hover:bg-primary-dark"
               >
                 Create meeting

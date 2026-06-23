@@ -6,7 +6,12 @@ import { CalendarPlus, NotebookPen, Pencil, Plus, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 
 import { AppShell } from "@/components/app-shell";
-import { AudiencePicker, AudienceIcon, audienceSummary } from "@/components/audience-picker";
+import {
+  AudiencePicker,
+  AudienceIcon,
+  audienceSummary,
+  isAudienceComplete,
+} from "@/components/audience-picker";
 import {
   useStore,
   usePageAccess,
@@ -74,6 +79,8 @@ function NewNoteDialog() {
     e.preventDefault();
     if (!content.trim()) return toast.error("Note can't be empty");
     if (!date) return toast.error("Pick a date for this note");
+    if (!isAudienceComplete(audience))
+      return toast.error("Select at least one department or person, or change who can see this");
     try {
       await saveNote(format(date, "yyyy-MM-dd"), content.trim(), undefined, audience);
       toast.success("Note created");
@@ -130,6 +137,7 @@ function NewNoteDialog() {
           <DialogFooter>
             <Button
               type="submit"
+              disabled={!isAudienceComplete(audience)}
               className="bg-primary text-primary-foreground hover:bg-primary-dark"
             >
               Create note
@@ -152,6 +160,8 @@ function EditNoteDialog({ note }: { note: Note }) {
   const save = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!content.trim()) return toast.error("Note can't be empty");
+    if (!isAudienceComplete(audience))
+      return toast.error("Select at least one department or person, or change who can see this");
     try {
       await saveNote(note.date, content.trim(), note.id, audience);
       toast.success("Note updated");
@@ -196,6 +206,7 @@ function EditNoteDialog({ note }: { note: Note }) {
           <DialogFooter>
             <Button
               type="submit"
+              disabled={!isAudienceComplete(audience)}
               className="bg-primary text-primary-foreground hover:bg-primary-dark"
             >
               Save

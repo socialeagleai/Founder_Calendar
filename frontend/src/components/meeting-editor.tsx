@@ -14,7 +14,12 @@ import {
   type Schedule,
   type SectionType,
 } from "@/lib/store";
-import { AudiencePicker, AudienceIcon, audienceSummary } from "@/components/audience-picker";
+import {
+  AudiencePicker,
+  AudienceIcon,
+  audienceSummary,
+  isAudienceComplete,
+} from "@/components/audience-picker";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -218,6 +223,10 @@ export function MeetingEditor({
 
   const changeAudience = (next: Audience) => {
     setAudience(next);
+    // Don't persist a half-finished choice (e.g. "Departments" with nothing
+    // ticked). The picker warns until at least one is selected; we save once
+    // the audience is complete.
+    if (!isAudienceComplete(next)) return;
     useStore
       .getState()
       .setMeetingAudience(meetingId, next)

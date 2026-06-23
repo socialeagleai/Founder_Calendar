@@ -19,7 +19,12 @@ const MODES: {
   desc: string;
 }[] = [
   { key: "everyone", label: "Everyone", icon: Globe, desc: "Everyone in the organization" },
-  { key: "departments", label: "Departments", icon: Building2, desc: "Only the chosen departments" },
+  {
+    key: "departments",
+    label: "Departments",
+    icon: Building2,
+    desc: "Only the chosen departments",
+  },
   { key: "members", label: "Specific people", icon: Users, desc: "Only the chosen teammates" },
   { key: "private", label: "Only me", icon: Lock, desc: "Kept private to you" },
 ];
@@ -30,6 +35,17 @@ const ICONS: Record<Visibility, ComponentType<{ className?: string }>> = {
   members: Users,
   private: Lock,
 };
+
+/**
+ * Whether an audience is ready to save. "Departments"/"Specific people" require
+ * at least one selection; "Everyone"/"Only me" are always complete. Consumers
+ * use this to block their OK/Save button until a choice is made.
+ */
+export function isAudienceComplete(a: Audience): boolean {
+  if (a.visibility === "departments") return (a.visibleDepartments ?? []).length > 0;
+  if (a.visibility === "members") return (a.visibleMembers ?? []).length > 0;
+  return true;
+}
 
 /** A short human label for an audience, e.g. "Everyone", "HR", "3 people". */
 export function audienceSummary(
@@ -79,9 +95,17 @@ export function AudiencePicker({
 
   const setMode = (v: Visibility) => {
     if (v === "departments")
-      onChange({ visibility: v, visibleDepartments: value.visibleDepartments ?? [], visibleMembers: [] });
+      onChange({
+        visibility: v,
+        visibleDepartments: value.visibleDepartments ?? [],
+        visibleMembers: [],
+      });
     else if (v === "members")
-      onChange({ visibility: v, visibleMembers: value.visibleMembers ?? [], visibleDepartments: [] });
+      onChange({
+        visibility: v,
+        visibleMembers: value.visibleMembers ?? [],
+        visibleDepartments: [],
+      });
     else onChange({ visibility: v, visibleDepartments: [], visibleMembers: [] });
   };
 
@@ -104,7 +128,9 @@ export function AudiencePicker({
           )}
         >
           <Icon className="h-3.5 w-3.5 text-primary" />
-          <span className="max-w-[140px] truncate">{audienceSummary(value, departments, team)}</span>
+          <span className="max-w-[140px] truncate">
+            {audienceSummary(value, departments, team)}
+          </span>
           <ChevronDown className="h-3.5 w-3.5 text-muted-foreground" />
         </button>
       </PopoverTrigger>
@@ -127,7 +153,12 @@ export function AudiencePicker({
                   active ? "bg-accent" : "hover:bg-accent/50",
                 )}
               >
-                <m.icon className={cn("mt-0.5 h-4 w-4", active ? "text-primary" : "text-muted-foreground")} />
+                <m.icon
+                  className={cn(
+                    "mt-0.5 h-4 w-4",
+                    active ? "text-primary" : "text-muted-foreground",
+                  )}
+                />
                 <div className="min-w-0">
                   <div className="text-sm font-medium">{m.label}</div>
                   <div className="text-[11px] text-muted-foreground">{m.desc}</div>
@@ -181,6 +212,14 @@ export function AudiencePicker({
                 </label>
               ))
             )}
+          </div>
+        )}
+
+        {!isAudienceComplete(value) && (
+          <div className="border-t border-border bg-destructive/5 px-3 py-2 text-[11px] font-medium text-destructive">
+            {value.visibility === "departments"
+              ? "Select at least one department to continue."
+              : "Select at least one person to continue."}
           </div>
         )}
       </PopoverContent>

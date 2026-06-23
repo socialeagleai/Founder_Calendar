@@ -11,7 +11,12 @@ import {
   type Audience,
   type Note,
 } from "@/lib/store";
-import { AudiencePicker, AudienceIcon, audienceSummary } from "@/components/audience-picker";
+import {
+  AudiencePicker,
+  AudienceIcon,
+  audienceSummary,
+  isAudienceComplete,
+} from "@/components/audience-picker";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
@@ -437,6 +442,7 @@ function Editor({
           <Button
             size="sm"
             onClick={onSave}
+            disabled={!isAudienceComplete(audience)}
             className="bg-primary text-primary-foreground hover:bg-primary-dark"
           >
             <Check className="h-3.5 w-3.5" /> Save Note

@@ -17,7 +17,12 @@ import {
 } from "@/lib/store";
 import { isBoardData, layoutBoxes, nextFreeSlot } from "@/lib/template-utils";
 import { BoardCanvas, type CardHandlers } from "@/components/board-canvas";
-import { AudiencePicker, AudienceIcon, audienceSummary } from "@/components/audience-picker";
+import {
+  AudiencePicker,
+  AudienceIcon,
+  audienceSummary,
+  isAudienceComplete,
+} from "@/components/audience-picker";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -189,6 +194,10 @@ export function BoardEditor({
 
   const changeAudience = (next: Audience) => {
     setAudience(next);
+    // Don't persist a half-finished choice (e.g. "Departments" with nothing
+    // ticked). The picker shows a warning until at least one is selected; we
+    // save once the audience is complete.
+    if (!isAudienceComplete(next)) return;
     useStore
       .getState()
       .setBoardAudience(boardId, next)
