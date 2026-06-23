@@ -65,6 +65,9 @@ export function MonthCalendar({
     days.push(cur);
     cur = new Date(cur.getTime() + 24 * 60 * 60 * 1000);
   }
+  // A month spans 4-6 weeks; size the grid to the actual number so the rows
+  // fill the card height evenly with no empty band at the bottom.
+  const weeks = days.length / 7;
 
   return (
     <div className="flex h-full flex-col overflow-hidden rounded-2xl border border-border bg-card shadow-soft">
@@ -129,7 +132,10 @@ export function MonthCalendar({
         ))}
       </div>
 
-      <div className="grid flex-1 grid-cols-7 grid-rows-6">
+      <div
+        className="grid flex-1 grid-cols-7"
+        style={{ gridTemplateRows: `repeat(${weeks}, minmax(0, 1fr))` }}
+      >
         {days.map((d, i) => {
           const key = format(d, "yyyy-MM-dd");
           const inMonth = isSameMonth(d, month);
