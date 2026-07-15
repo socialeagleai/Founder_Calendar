@@ -45,15 +45,27 @@ services:
       CORS_ORIGINS: "https://fc.socialeagle.ai"
       # Base URL used to build password-reset links in emails.
       APP_BASE_URL: "https://fc.socialeagle.ai"
-      # SMTP for password-reset emails. Real values come from an untracked
-      # /root/Founder_Calendar/.env on the VPS (kept out of git). When SMTP_HOST
-      # is empty the reset link is logged to the backend instead of emailed.
+      # SMTP for password-reset emails, notification emails and the daily digest.
+      # Real values come from an untracked /root/Founder_Calendar/.env on the VPS
+      # (kept out of git). When SMTP_HOST is empty, reset links are logged to the
+      # backend instead of emailed and notification email is skipped with a
+      # warning - the in-app bell is unaffected either way.
       SMTP_HOST: "${SMTP_HOST:-}"
       SMTP_PORT: "${SMTP_PORT:-587}"
       SMTP_USER: "${SMTP_USER:-}"
       SMTP_PASSWORD: "${SMTP_PASSWORD:-}"
       SMTP_FROM: "${SMTP_FROM:-}"
       SMTP_TLS: "${SMTP_TLS:-true}"
+      # The in-process thread that sends daily agenda digests.
+      DIGEST_ENABLED: "${DIGEST_ENABLED:-true}"
+      # Web Push. Blank = push stays off and the Settings toggle hides itself.
+      # Generate a pair with `python -m app.gen_vapid` and put BOTH in
+      # /root/Founder_Calendar/.env; the private key is a secret and must never
+      # reach git. Passed through here on purpose: without these lines, adding
+      # the keys to .env would change nothing and push would silently no-op.
+      VAPID_PUBLIC_KEY: "${VAPID_PUBLIC_KEY:-}"
+      VAPID_PRIVATE_KEY: "${VAPID_PRIVATE_KEY:-}"
+      VAPID_SUBJECT: "${VAPID_SUBJECT:-mailto:support@socialeagle.ai}"
     ports:
       # Bound to localhost — only nginx (on this host) reaches it. Public
       # access is via https://backend.fc.socialeagle.ai.
