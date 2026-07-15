@@ -6,6 +6,7 @@ from sqlalchemy import (
     Boolean,
     DateTime,
     ForeignKey,
+    Index,
     Integer,
     String,
     Text,
@@ -71,6 +72,13 @@ class Notification(Base):
     message: Mapped[str] = mapped_column(Text, nullable=False)
     read: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
+
+    __table_args__ = (
+        # The bell polls "unread for me, newest first" on an interval - the only
+        # query that touches this table at any volume. Postgres scans a btree
+        # backwards, so a plain ascending index serves the DESC order fine.
+        Index("ix_notifications_user_read_created", "user_id", "read", "created_at"),
+    )
 
 
 class Organization(Base):

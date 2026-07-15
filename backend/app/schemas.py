@@ -164,6 +164,17 @@ class NotificationOut(CamelModel):
     created_at: datetime
 
 
+class BellOut(CamelModel):
+    """Everything the notification bell renders, in one response. The bell polls
+    on an interval, and fetching these separately meant re-decoding the JWT and
+    re-resolving the active org once per feed, several times a minute, per tab."""
+
+    invitations: list[InvitationOut]
+    leave_requests: list[LeaveRequestOut]
+    notifications: list[NotificationOut]
+    orgs: list[OrgMembershipOut]
+
+
 # ---------- Team ----------
 PageAccess = Literal["view", "edit"]
 # Per-page access map: { "<page-key>": "view" | "edit" }.

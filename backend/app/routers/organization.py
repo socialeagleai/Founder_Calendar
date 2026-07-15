@@ -36,28 +36,25 @@ def get_organization(
     return resolve_active_org(db, user, x_org_id)
 
 
-@router.get("s", response_model=list[OrgMembershipOut])
-def list_my_organizations(
-    user: User = Depends(get_current_user),
-    db: Session = Depends(get_db),
-) -> list[OrgMembershipOut]:
-    """Every org the user belongs to (owned + accepted memberships) - powers the
-    navbar org switcher. Served at /api/organizations."""
+def memberships_for(db: Session, user: User) -> list[OrgMembershipOut]:
+    """Every org the user belongs to, with their role in each. Shared with the
+    composite /api/bell so the two can't drift apart."""
+    orgs = orgs_for_user(db, user)
+    if not orgs:
+        return []
+    # One query for the user's memberships instead of one per org.
+    roles = {
+        m.organization_id: m.role
+        for m in db.query(TeamMember)
+        .filter(
+            TeamMember.organization_id.in_([o.id for o in orgs]),
+            TeamMember.email == user.email,
+        )
+        .all()
+    }
     out: list[OrgMembershipOut] = []
-    for org in orgs_for_user(db, user):
+    for org in orgs:
         is_owner = org.owner_id == user.id
-        if is_owner:
-            role = "Owner"
-        else:
-            member = (
-                db.query(TeamMember)
-                .filter(
-                    TeamMember.organization_id == org.id,
-                    TeamMember.email == user.email,
-                )
-                .first()
-            )
-            role = member.role if member else "Member"
         out.append(
             OrgMembershipOut(
                 id=org.id,
@@ -65,11 +62,21 @@ def list_my_organizations(
                 description=org.description,
                 created_at=org.created_at,
                 owner_id=org.owner_id,
-                role=role,
+                role="Owner" if is_owner else roles.get(org.id, "Member"),
                 is_owner=is_owner,
             )
         )
     return out
+
+
+@router.get("s", response_model=list[OrgMembershipOut])
+def list_my_organizations(
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> list[OrgMembershipOut]:
+    """Every org the user belongs to (owned + accepted memberships) - powers the
+    navbar org switcher. Served at /api/organizations."""
+    return memberships_for(db, user)
 
 
 @router.post("", response_model=OrganizationOut, status_code=status.HTTP_201_CREATED)

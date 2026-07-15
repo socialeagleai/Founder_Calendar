@@ -112,6 +112,14 @@ export interface AppNotification {
   createdAt: string;
 }
 
+/** Everything the notification bell renders, fetched in one poll. */
+export interface Bell {
+  invitations: Invitation[];
+  leaveRequests: LeaveRequest[];
+  notifications: AppNotification[];
+  orgs: OrgMembership[];
+}
+
 export interface Note extends Audience {
   id: string;
   date: string; // YYYY-MM-DD
@@ -771,26 +779,22 @@ export const useStore = create<AppState>((set, get) => ({
   },
 
   // Light refresh of everything shown in the bell - polled on an interval so
-  // invites, leave requests and messages appear without a manual reload.
+  // invites, leave requests and messages appear without a manual reload. One
+  // request, not five: the bell polls from every open tab, and each separate
+  // fetch re-paid the JWT decode and active-org resolve on the backend.
+  // Throws on failure so the caller can back off rather than hammer a dead API.
   refreshBell: async () => {
-    const [invitations, leaveRequests, notifications, team, myOrgs] = await Promise.all([
-      api.getInvitations().catch((): Invitation[] => []),
-      api.getLeaveRequests().catch((): LeaveRequest[] => []),
-      api.getNotifications().catch((): AppNotification[] => []),
-      api.getTeam().catch(() => null),
-      api.getOrganizations().catch((): OrgMembership[] | null => null),
-    ]);
-    set((s) => ({
-      invitations,
-      leaveRequests,
-      notifications,
-      team: team ?? s.team,
-      myOrgs: myOrgs ?? s.myOrgs,
-    }));
+    const bell = await api.getBell();
+    set({
+      invitations: bell.invitations,
+      leaveRequests: bell.leaveRequests,
+      notifications: bell.notifications,
+      myOrgs: bell.orgs,
+    });
     // If our active org vanished (e.g. an owner approved our leave), reconcile
     // the whole session so we land on another org - or onboarding if we have none.
     const activeId = getActiveOrgId();
-    if (myOrgs && activeId && !myOrgs.some((o) => o.id === activeId)) {
+    if (activeId && !bell.orgs.some((o) => o.id === activeId)) {
       await get().refreshOrgData();
     }
   },

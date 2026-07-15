@@ -8,6 +8,7 @@ from .config import settings
 from .database import Base, engine
 from .routers import (
     auth,
+    bell,
     boards,
     departments,
     invitations,
@@ -99,6 +100,17 @@ def _run_lightweight_migrations() -> None:
                     )
                 )
 
+    # The bell polls "unread for me, newest first" on an interval. create_all()
+    # only indexes tables it creates, so add this to already-live databases.
+    if "notifications" in inspector.get_table_names():
+        with engine.begin() as conn:
+            conn.execute(
+                text(
+                    "CREATE INDEX IF NOT EXISTS ix_notifications_user_read_created "
+                    "ON notifications (user_id, read, created_at)"
+                )
+            )
+
     # Per-user ownership of boards/meetings/templates/notes. Backfill existing
     # rows to the organization owner so pre-existing data keeps a creator.
     for table in ("boards", "meetings", "templates", "notes"):
@@ -148,6 +160,7 @@ app.include_router(departments.router)
 app.include_router(invitations.router)
 app.include_router(leave_requests.router)
 app.include_router(notifications.router)
+app.include_router(bell.router)
 app.include_router(notes.router)
 app.include_router(boards.router)
 app.include_router(meetings.router)

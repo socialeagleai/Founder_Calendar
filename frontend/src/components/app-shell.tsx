@@ -54,6 +54,11 @@ const nav = [
   { to: "/settings", label: "Settings", icon: Settings },
 ] as const;
 
+// How often the bell polls while the tab is visible, and the ceiling it backs
+// off to after repeated failures.
+const BELL_POLL_MS = 15_000;
+const BELL_POLL_MAX_MS = 5 * 60_000;
+
 export function AppShell({ children }: { children: ReactNode }) {
   const navigate = useNavigate();
   const { status, currentUser, organization, access, logout } = useStore();
@@ -64,11 +69,44 @@ export function AppShell({ children }: { children: ReactNode }) {
 
   // Poll the notification bell (invites, leave requests, messages) so it updates
   // without a manual reload - including cross-user events from other people.
+  // A backgrounded tab doesn't poll at all, and failures back off instead of
+  // retrying at full rate forever: this runs in every tab the user leaves open.
   useEffect(() => {
     if (!currentUser) return;
-    void refreshBell();
-    const id = setInterval(() => void refreshBell(), 15000);
-    return () => clearInterval(id);
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    let cancelled = false;
+    let failures = 0;
+
+    const schedule = (ms: number) => {
+      clearTimeout(timer);
+      timer = setTimeout(() => void tick(), ms);
+    };
+
+    const tick = async () => {
+      if (cancelled) return;
+      // Nothing to show a tab nobody is looking at - wait for it to come back.
+      if (document.visibilityState === "hidden") return schedule(BELL_POLL_MS);
+      try {
+        await refreshBell();
+        failures = 0;
+        schedule(BELL_POLL_MS);
+      } catch {
+        failures += 1;
+        schedule(Math.min(BELL_POLL_MS * 2 ** failures, BELL_POLL_MAX_MS));
+      }
+    };
+
+    void tick();
+    // Catch up immediately when the tab is looked at again.
+    const onVisible = () => {
+      if (document.visibilityState === "visible") void tick();
+    };
+    document.addEventListener("visibilitychange", onVisible);
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+      document.removeEventListener("visibilitychange", onVisible);
+    };
   }, [currentUser, refreshBell]);
 
   // Only the pages this user is allowed to open (owners see all).

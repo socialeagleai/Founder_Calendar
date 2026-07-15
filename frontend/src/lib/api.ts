@@ -15,6 +15,7 @@
 import type {
   Access,
   Audience,
+  Bell,
   BoardDetail,
   BoardSummary,
   AppNotification,
@@ -230,6 +231,11 @@ export const api = {
 
   dismissNotification: (id: string) =>
     request<void>(`/api/notifications/${id}/dismiss`, { method: "POST" }),
+
+  // ---- bell ----
+  // Everything the bell renders in one round trip. It polls on an interval, so
+  // fetching the feeds separately re-paid the auth + org-resolve cost per feed.
+  getBell: () => request<Bell>("/api/bell"),
 
   // ---- notes ----
   getNotes: () => request<Note[]>("/api/notes"),

@@ -33,12 +33,9 @@ def _my_invite(db: Session, user: User, invite_id: str) -> TeamMember:
     return member
 
 
-@router.get("", response_model=list[InvitationOut])
-def list_invitations(
-    user: User = Depends(get_current_user),
-    db: Session = Depends(get_db),
-) -> list[InvitationOut]:
-    """Pending invitations for the current user - shown in the notification bell."""
+def invitations_for(db: Session, user: User) -> list[InvitationOut]:
+    """Pending invitations for a user. Shared with the composite /api/bell so the
+    two can't drift apart."""
     out: list[InvitationOut] = []
     for m in _pending_invites(db, user):
         org = db.get(Organization, m.organization_id)
@@ -54,6 +51,15 @@ def list_invitations(
             )
         )
     return out
+
+
+@router.get("", response_model=list[InvitationOut])
+def list_invitations(
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> list[InvitationOut]:
+    """Pending invitations for the current user - shown in the notification bell."""
+    return invitations_for(db, user)
 
 
 @router.post("/{invite_id}/accept", response_model=InvitationOut)

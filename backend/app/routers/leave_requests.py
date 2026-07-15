@@ -39,12 +39,9 @@ def _get_request(db: Session, user: User, member_id: str) -> TeamMember:
     return member
 
 
-@router.get("", response_model=list[LeaveRequestOut])
-def list_leave_requests(
-    user: User = Depends(get_current_user),
-    db: Session = Depends(get_db),
-) -> list[LeaveRequestOut]:
-    """Pending leave requests across all organizations the current user owns."""
+def leave_requests_for(db: Session, user: User) -> list[LeaveRequestOut]:
+    """Pending leave requests across every org the user owns. Shared with the
+    composite /api/bell so the two can't drift apart."""
     org_ids = _owned_org_ids(db, user)
     if not org_ids:
         return []
@@ -70,6 +67,15 @@ def list_leave_requests(
             )
         )
     return out
+
+
+@router.get("", response_model=list[LeaveRequestOut])
+def list_leave_requests(
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> list[LeaveRequestOut]:
+    """Pending leave requests across all organizations the current user owns."""
+    return leave_requests_for(db, user)
 
 
 @router.post("/{member_id}/accept", status_code=status.HTTP_204_NO_CONTENT)
