@@ -1,7 +1,15 @@
 from datetime import datetime
 from typing import Literal
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-from pydantic import BaseModel, ConfigDict, EmailStr, Field, model_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    EmailStr,
+    Field,
+    field_validator,
+    model_validator,
+)
 from pydantic.alias_generators import to_camel
 
 Role = Literal["Owner", "Admin", "Member"]
@@ -160,8 +168,56 @@ class NotificationOut(CamelModel):
 
     id: str
     message: str
+    # What produced it, and where clicking it goes (relative path; "" = not
+    # clickable). The frontend routes on `link` alone - `type` is for styling.
+    type: str
+    link: str
     read: bool
     created_at: datetime
+
+
+class NotificationPrefsOut(CamelModel):
+    """A user's notification settings."""
+
+    shared_with_me: bool
+    activity: bool
+    mentions: bool
+    daily_agenda: bool
+    email_enabled: bool
+    push_enabled: bool
+    digest_hour: int
+    timezone: str
+
+
+class NotificationPrefsUpdate(CamelModel):
+    """Partial update of notification settings - only the fields sent change."""
+
+    shared_with_me: bool | None = None
+    activity: bool | None = None
+    mentions: bool | None = None
+    daily_agenda: bool | None = None
+    email_enabled: bool | None = None
+    push_enabled: bool | None = None
+    digest_hour: int | None = Field(default=None, ge=0, le=23)
+    timezone: str | None = None
+
+    @field_validator("timezone")
+    @classmethod
+    def _known_timezone(cls, v: str | None) -> str | None:
+        # Rejected at the boundary rather than stored: the digest scheduler walks
+        # every user's timezone on a tick, and one unparseable value would raise
+        # in a background thread where nobody sees it.
+        #
+        # Tested by actually constructing the zone rather than checking membership
+        # of available_timezones() - that set is empty when tzdata is missing,
+        # which would reject every timezone on earth instead of just bad ones.
+        if v is None:
+            return v
+        try:
+            ZoneInfo(v)
+        except (ZoneInfoNotFoundError, ValueError, KeyError) as exc:
+            raise ValueError("Unknown timezone") from exc
+        return v
 
 
 class BellOut(CamelModel):

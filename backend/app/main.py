@@ -100,14 +100,48 @@ def _run_lightweight_migrations() -> None:
                     )
                 )
 
-    # The bell polls "unread for me, newest first" on an interval. create_all()
-    # only indexes tables it creates, so add this to already-live databases.
+    # Notification routing/idempotency columns, plus the bell's poll index.
+    # create_all() only touches tables it creates, so existing databases need
+    # both the ADD COLUMNs and the indexes explicitly.
     if "notifications" in inspector.get_table_names():
+        cols = {c["name"] for c in inspector.get_columns("notifications")}
         with engine.begin() as conn:
+            if "organization_id" not in cols:
+                conn.execute(
+                    text("ALTER TABLE notifications ADD COLUMN organization_id VARCHAR(32)")
+                )
+            if "type" not in cols:
+                conn.execute(
+                    text(
+                        "ALTER TABLE notifications ADD COLUMN type "
+                        "VARCHAR(32) NOT NULL DEFAULT 'system'"
+                    )
+                )
+            if "link" not in cols:
+                conn.execute(
+                    text("ALTER TABLE notifications ADD COLUMN link VARCHAR(255) NOT NULL DEFAULT ''")
+                )
+            if "dedupe_key" not in cols:
+                conn.execute(text("ALTER TABLE notifications ADD COLUMN dedupe_key VARCHAR(255)"))
             conn.execute(
                 text(
                     "CREATE INDEX IF NOT EXISTS ix_notifications_user_read_created "
                     "ON notifications (user_id, read, created_at)"
+                )
+            )
+            conn.execute(
+                text(
+                    "CREATE INDEX IF NOT EXISTS ix_notifications_organization_id "
+                    "ON notifications (organization_id)"
+                )
+            )
+            # Per-user, not global: one event fans out to many recipients, and a
+            # global unique on dedupe_key would reject everyone after the first.
+            # Postgres treats NULLs as distinct, so undeduped rows are unaffected.
+            conn.execute(
+                text(
+                    "CREATE UNIQUE INDEX IF NOT EXISTS uq_notification_user_dedupe "
+                    "ON notifications (user_id, dedupe_key)"
                 )
             )
 

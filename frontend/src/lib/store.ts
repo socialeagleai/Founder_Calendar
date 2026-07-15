@@ -108,8 +108,26 @@ export interface LeaveRequest {
 export interface AppNotification {
   id: string;
   message: string;
+  /** What produced it: system | shared | activity | mention | digest. */
+  type: string;
+  /** Relative path to open when clicked; "" means not clickable. */
+  link: string;
   read: boolean;
   createdAt: string;
+}
+
+/** The current user's notification settings (Settings -> Preferences). */
+export interface NotificationPrefs {
+  sharedWithMe: boolean;
+  activity: boolean;
+  mentions: boolean;
+  dailyAgenda: boolean;
+  emailEnabled: boolean;
+  pushEnabled: boolean;
+  /** Local hour (0-23) the daily digest is sent, in `timezone`. */
+  digestHour: number;
+  /** IANA timezone name, e.g. "Asia/Kolkata". */
+  timezone: string;
 }
 
 /** Everything the notification bell renders, fetched in one poll. */
@@ -271,6 +289,9 @@ interface AppState {
   leaveRequests: LeaveRequest[];
   // In-app messages for the current user (e.g. leave request outcome).
   notifications: AppNotification[];
+  // Notification settings. Null until loaded - the Settings page fetches them on
+  // mount; nothing else needs them, so they're not part of bootstrap.
+  prefs: NotificationPrefs | null;
   access: Access | null;
   team: TeamMember[];
   departments: Department[];
@@ -338,6 +359,10 @@ interface AppState {
   refreshBell: () => Promise<void>;
   dismissNotification: (id: string) => Promise<void>;
 
+  // Notification settings
+  refreshPrefs: () => Promise<void>;
+  updatePrefs: (patch: Partial<NotificationPrefs>) => Promise<void>;
+
   // Team
   inviteMember: (
     name: string,
@@ -373,6 +398,7 @@ export const useStore = create<AppState>((set, get) => ({
   invitations: [],
   leaveRequests: [],
   notifications: [],
+  prefs: null,
   access: null,
   team: [],
   departments: [],
@@ -407,6 +433,7 @@ export const useStore = create<AppState>((set, get) => ({
         invitations: [],
         leaveRequests: [],
         notifications: [],
+        prefs: null,
         access: null,
         team: [],
         departments: [],
@@ -693,6 +720,7 @@ export const useStore = create<AppState>((set, get) => ({
       invitations: [],
       leaveRequests: [],
       notifications: [],
+      prefs: null,
       access: null,
       team: [],
       departments: [],
@@ -802,6 +830,23 @@ export const useStore = create<AppState>((set, get) => ({
   dismissNotification: async (id) => {
     set((s) => ({ notifications: s.notifications.filter((n) => n.id !== id) }));
     await api.dismissNotification(id).catch(() => {});
+  },
+
+  refreshPrefs: async () => {
+    set({ prefs: await api.getNotificationPrefs() });
+  },
+
+  updatePrefs: async (patch) => {
+    // Optimistic: a settings switch that lags behind the pointer feels broken.
+    // Snapshot first so a failed save snaps back rather than lying about state.
+    const previous = get().prefs;
+    if (previous) set({ prefs: { ...previous, ...patch } });
+    try {
+      set({ prefs: await api.updateNotificationPrefs(patch) });
+    } catch (err) {
+      set({ prefs: previous });
+      throw err;
+    }
   },
 
   inviteMember: async (name, email, role, permissions, departmentId) => {

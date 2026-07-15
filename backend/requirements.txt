@@ -10,3 +10,7 @@ bcrypt==4.2.1
 python-multipart==0.0.20
 google-auth==2.37.0
 requests==2.32.3
+# Timezone database for zoneinfo. The python:*-slim image ships no system tzdata,
+# so without this every ZoneInfo("Asia/Kolkata") raises at runtime and
+# available_timezones() is empty - notification prefs and the digest need both.
+tzdata==2026.3

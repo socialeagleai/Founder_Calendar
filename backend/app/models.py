@@ -61,7 +61,9 @@ class PasswordResetToken(Base):
 
 class Notification(Base):
     """A simple in-app message delivered to a user (shown in the bell). Used for
-    cross-user events like a leave request being approved or declined."""
+    cross-user events like a leave request being approved or declined, and for
+    the audience-driven feeds (something shared with you, activity on your items,
+    mentions)."""
 
     __tablename__ = "notifications"
 
@@ -69,7 +71,22 @@ class Notification(Base):
     user_id: Mapped[str] = mapped_column(
         ForeignKey("users.id", ondelete="CASCADE"), index=True, nullable=False
     )
+    # Which org this is about. NULL = not org-scoped (leave requests span orgs by
+    # design). The bell filters to "NULL or my active org" so a message about one
+    # org can't surface - or deep-link - while the user is looking at another.
+    organization_id: Mapped[str | None] = mapped_column(
+        ForeignKey("organizations.id", ondelete="CASCADE"), index=True, nullable=True
+    )
     message: Mapped[str] = mapped_column(Text, nullable=False)
+    # What produced this: system | shared | activity | mention | digest.
+    type: Mapped[str] = mapped_column(String(32), default="system", nullable=False)
+    # Where clicking it goes, as a relative path (e.g. "/board/abc123"). Empty
+    # means the row isn't clickable.
+    link: Mapped[str] = mapped_column(String(255), default="", nullable=False)
+    # Idempotency/coalescing handle, e.g. "mention:note:abc:user1". NULL for rows
+    # that don't dedupe. Unique PER USER - the same event fans out to many people,
+    # so a global unique would let recipient #1 win and reject everyone else.
+    dedupe_key: Mapped[str | None] = mapped_column(String(255), nullable=True)
     read: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
 
@@ -78,6 +95,38 @@ class Notification(Base):
         # query that touches this table at any volume. Postgres scans a btree
         # backwards, so a plain ascending index serves the DESC order fine.
         Index("ix_notifications_user_read_created", "user_id", "read", "created_at"),
+        # Backstop only: producers SELECT first rather than rely on this, because
+        # a violation would abort the caller's whole transaction (notify() shares
+        # the request's session and the router commits it).
+        UniqueConstraint("user_id", "dedupe_key", name="uq_notification_user_dedupe"),
+    )
+
+
+class NotificationPreference(Base):
+    """Per-user notification settings. A row only exists once the user changes
+    something - `prefs_for()` resolves defaults in code for everyone else, so
+    there's no write on a read path and no backfill when defaults change."""
+
+    __tablename__ = "notification_preferences"
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=_uuid)
+    user_id: Mapped[str] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), unique=True, index=True, nullable=False
+    )
+    # What to notify about.
+    shared_with_me: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    activity: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    mentions: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    daily_agenda: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    # Master switches per channel. The bell is always on - it's the app itself.
+    email_enabled: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    push_enabled: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    # Digest send time: local hour (0-23) in the user's IANA timezone.
+    digest_hour: Mapped[int] = mapped_column(Integer, default=8, nullable=False)
+    timezone: Mapped[str] = mapped_column(String(64), default="Asia/Kolkata", nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=_now, onupdate=_now
     )
 
 

@@ -27,6 +27,7 @@ import type {
   MeetingInput,
   MeetingSummary,
   Note,
+  NotificationPrefs,
   Organization,
   OrgMembership,
   Permissions,
@@ -231,6 +232,16 @@ export const api = {
 
   dismissNotification: (id: string) =>
     request<void>(`/api/notifications/${id}/dismiss`, { method: "POST" }),
+
+  // ---- notification preferences ----
+  getNotificationPrefs: () => request<NotificationPrefs>("/api/notifications/preferences"),
+
+  // Partial update - only the keys sent are changed. Returns the merged result.
+  updateNotificationPrefs: (patch: Partial<NotificationPrefs>) =>
+    request<NotificationPrefs>("/api/notifications/preferences", {
+      method: "PATCH",
+      body: patch,
+    }),
 
   // ---- bell ----
   // Everything the bell renders in one round trip. It polls on an interval, so
