@@ -4,6 +4,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import inspect, text
 
+from . import scheduler
 from .config import settings
 from .database import Base, engine
 from .routers import (
@@ -215,7 +216,12 @@ async def lifespan(_: FastAPI):
     # Create tables on startup, then apply additive column migrations.
     Base.metadata.create_all(bind=engine)
     _run_lightweight_migrations()
+    # In-process digest thread. Safe because we run a single uvicorn worker; see
+    # scheduler.py. Can be turned off with DIGEST_ENABLED=false.
+    if settings.digest_enabled:
+        scheduler.start()
     yield
+    scheduler.stop()
 
 
 app = FastAPI(

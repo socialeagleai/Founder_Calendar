@@ -33,6 +33,10 @@ class Settings(BaseSettings):
     smtp_from: str = ""
     smtp_tls: bool = True
 
+    # The in-process thread that sends daily agenda digests. Off in tests and any
+    # environment where a background loop would be surprising.
+    digest_enabled: bool = True
+
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
 
     @property
