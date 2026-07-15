@@ -12,6 +12,7 @@ from ..deps import (
     require_page_access,
 )
 from ..models import Note, Organization, User
+from ..notify_service import fanout, notify_mentions
 from ..schemas import NoteCreateRequest, NoteOut, NoteUpdateRequest
 
 router = APIRouter(prefix="/api/notes", tags=["notes"])
@@ -32,8 +33,11 @@ def _get_note(db: Session, org: Organization, note_id: str) -> Note:
     return note
 
 
-def _out(note: Note, user: User) -> Note:
+def _out(note: Note, user: User, unreachable: list[str] | None = None) -> Note:
     note.mine = note.user_id == user.id  # type: ignore[attr-defined]
+    # Handles that name a real teammate who can't see this note. Surfaced so the
+    # author learns their @mention went nowhere instead of assuming it landed.
+    note.unreachable_mentions = unreachable or []  # type: ignore[attr-defined]
     return note
 
 
@@ -78,9 +82,39 @@ def create_note(
         visible_members=list(body.visible_members),
     )
     db.add(note)
+    # Flush (don't commit) so the note has an id for the notification links while
+    # staying in the same transaction: if the fan-out blows up, the note doesn't
+    # get half-saved with nobody told about it.
+    db.flush()
+    link = f"/calendar?date={note.date}"
+    # Mentions first, so the fan-out can skip anyone already pinged by name -
+    # otherwise being @mentioned in a note visible to everyone earns you two
+    # notifications about the same note.
+    mentions = notify_mentions(
+        db,
+        org,
+        note,
+        actor=user,
+        text=note.content,
+        message=f"{user.name} mentioned you in a note on {note.date}",
+        link=link,
+        item_kind="note",
+        item_id=note.id,
+    )
+    fanout(
+        db,
+        org,
+        note,
+        actor=user,
+        category="shared",
+        message=f"{user.name} added a note on {note.date}",
+        link=link,
+        dedupe_key=f"shared:note:{note.id}",
+        also_exclude=mentions.notified,
+    )
     db.commit()
     db.refresh(note)
-    return _out(note, user)
+    return _out(note, user, mentions.unreachable)
 
 
 @router.put("/{note_id}", response_model=NoteOut)
@@ -102,9 +136,25 @@ def update_note(
         note.visibility = body.visibility
         note.visible_departments = list(body.visible_departments)
         note.visible_members = list(body.visible_members)
+    db.flush()
+    # Mentions are re-scanned on every save because the content is replaced
+    # wholesale and we can't tell what's new. The dedupe key carries no time
+    # component, so an existing mention resolves to a row that already exists
+    # and nobody is pinged twice; only a newly added @handle produces anything.
+    mentions = notify_mentions(
+        db,
+        org,
+        note,
+        actor=user,
+        text=note.content,
+        message=f"{user.name} mentioned you in a note on {note.date}",
+        link=f"/calendar?date={note.date}",
+        item_kind="note",
+        item_id=note.id,
+    )
     db.commit()
     db.refresh(note)
-    return _out(note, user)
+    return _out(note, user, mentions.unreachable)
 
 
 @router.delete("/{note_id}", status_code=status.HTTP_204_NO_CONTENT)

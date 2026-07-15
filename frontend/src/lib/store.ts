@@ -82,6 +82,8 @@ export interface TeamMember {
   id: string;
   name: string;
   email: string;
+  /** What teammates type to mention them, without the "@" (e.g. "priya_nair"). */
+  handle?: string;
   role: Role;
   status: MemberStatus;
   permissions: Permissions;
@@ -142,6 +144,12 @@ export interface Note extends Audience {
   id: string;
   date: string; // YYYY-MM-DD
   content: string;
+  /**
+   * @handles in the content naming a real teammate who can't see this note.
+   * Returned on create/update so we can tell the author the mention went
+   * nowhere. Empty on reads.
+   */
+  unreachableMentions?: string[];
   creatorName?: string | null; // who added it (shown on the calendar)
   mine?: boolean; // created by the current user
   createdAt: string;
@@ -381,7 +389,8 @@ interface AppState {
   deleteDepartment: (id: string) => Promise<void>;
 
   // Notes
-  saveNote: (date: string, content: string, id?: string, audience?: Audience) => Promise<void>;
+  // Returns the saved note so the caller can surface unreachableMentions.
+  saveNote: (date: string, content: string, id?: string, audience?: Audience) => Promise<Note>;
   deleteNote: (id: string) => Promise<void>;
 
   // Profile
@@ -893,10 +902,11 @@ export const useStore = create<AppState>((set, get) => ({
     if (id) {
       const note = await api.updateNote(id, content, audience);
       set((s) => ({ notes: s.notes.map((n) => (n.id === id ? note : n)) }));
-    } else {
-      const note = await api.createNote(date, content, audience);
-      set((s) => ({ notes: [...s.notes, note] }));
+      return note;
     }
+    const note = await api.createNote(date, content, audience);
+    set((s) => ({ notes: [...s.notes, note] }));
+    return note;
   },
 
   deleteNote: async (id) => {
@@ -913,6 +923,18 @@ export const useStore = create<AppState>((set, get) => ({
 export const useCurrentUser = (): ApiUser | null => useStore((s) => s.currentUser);
 
 /** Effective access level for a page key. Owners (and pre-load) get "edit". */
+/**
+ * A warning for the author when their @mention couldn't reach someone, or null.
+ * Kept as a pure string builder (the store has no UI imports) - callers toast it.
+ * A mention that silently does nothing is worse than no mention at all.
+ */
+export const unreachableMentionWarning = (note: Note): string | null => {
+  const handles = note.unreachableMentions ?? [];
+  if (handles.length === 0) return null;
+  const who = handles.map((h) => `@${h}`).join(", ");
+  return `${who} can't see this note, so they weren't notified`;
+};
+
 export const levelFor = (access: Access | null, pageKey: string): "none" | PageAccess => {
   if (!access || access.isOwner) return "edit";
   // Mandatory pages every member always has: Settings (their own profile) is

@@ -24,6 +24,7 @@ import {
   useStore,
   useCurrentUser,
   levelFor,
+  type AppNotification,
   type Invitation,
   type LeaveRequest,
 } from "@/lib/store";
@@ -323,6 +324,7 @@ function OrgSwitcher() {
 
 /** Notification bell listing pending invitations with accept / decline. */
 function NotificationBell() {
+  const navigate = useNavigate();
   const invitations = useStore((s) => s.invitations);
   const leaveRequests = useStore((s) => s.leaveRequests);
   const notifications = useStore((s) => s.notifications);
@@ -370,6 +372,18 @@ function NotificationBell() {
     }
   };
 
+  // Open what a notification is about, then clear it - reading it is dismissing
+  // it. The target can be gone by now (deleted, or its audience narrowed), so
+  // the row has to survive a dead link rather than strand the user.
+  const openNotification = async (n: AppNotification) => {
+    void dismissNotification(n.id);
+    try {
+      await navigate({ to: n.link });
+    } catch {
+      toast.message("That item is no longer available");
+    }
+  };
+
   return (
     <DropdownMenu onOpenChange={(o) => !o && setConfirmingId(null)}>
       <DropdownMenuTrigger asChild>
@@ -393,7 +407,16 @@ function NotificationBell() {
           <>
             {notifications.map((n) => (
               <div key={n.id} className="flex items-start gap-2 px-3 py-2.5">
-                <p className="flex-1 text-sm leading-snug">{n.message}</p>
+                {n.link ? (
+                  <button
+                    onClick={() => void openNotification(n)}
+                    className="flex-1 rounded-md text-left text-sm leading-snug hover:text-primary"
+                  >
+                    {n.message}
+                  </button>
+                ) : (
+                  <p className="flex-1 text-sm leading-snug">{n.message}</p>
+                )}
                 <button
                   onClick={() => void dismissNotification(n.id)}
                   title="Dismiss"

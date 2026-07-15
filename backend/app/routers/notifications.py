@@ -14,6 +14,20 @@ from ..schemas import NotificationOut, NotificationPrefsOut, NotificationPrefsUp
 def _now() -> datetime:
     return datetime.now(timezone.utc)
 
+
+# Two kinds of dedupe key live in this column, and they mean opposite things:
+#
+#   identity keys ("mention:note:abc:<user>") mean "fire once for this thing,
+#     ever" - re-saving a note must not re-ping the people already mentioned in
+#     it, so the key has to survive being dismissed.
+#   coalescing keys ("activity:board:abc:<actor>:<hour>") mean "collapse this
+#     burst into one row" - they exist to stop forty edits becoming forty rows.
+#
+# Dismissing a coalesced row therefore has to release its key, or the hour bucket
+# keeps matching a row that's already read and the user is silently muted for the
+# rest of the hour. Dismissing an identity row must NOT release it.
+COALESCING_TYPES = {"activity"}
+
 router = APIRouter(prefix="/api/notifications", tags=["notifications"])
 
 
@@ -135,5 +149,11 @@ def dismiss_notification(
     if note is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Notification not found")
     note.read = True
+    # Release a coalescing key so the next event in the same time bucket starts a
+    # fresh row. Without this, dismissing "Bob updated your board" would mute Bob
+    # on that board until the hour rolled over. Identity keys (mentions) keep
+    # theirs - that's what makes them fire once and only once.
+    if note.type in COALESCING_TYPES:
+        note.dedupe_key = None
     db.commit()
     return None

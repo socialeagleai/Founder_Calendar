@@ -160,6 +160,11 @@ class TeamMember(Base):
     )
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     email: Mapped[str] = mapped_column(String(255), nullable=False)
+    # What teammates type to mention this person: lowercase [a-z0-9_], unique in
+    # the org. Derived from their name at invite time (see mentions.py). Names
+    # can't serve as mention targets - they contain spaces, collide by prefix,
+    # and change.
+    handle: Mapped[str] = mapped_column(String(64), default="", nullable=False)
     role: Mapped[str] = mapped_column(String(16), default="Member", nullable=False)  # Owner|Admin|Member
     status: Mapped[str] = mapped_column(String(16), default="Invited", nullable=False)  # Active|Invited
     # Per-page access map: { "<page-key>": "view" | "edit" }. Pages absent from
@@ -175,7 +180,12 @@ class TeamMember(Base):
     organization: Mapped[Organization] = relationship(back_populates="team")
     department: Mapped["Department | None"] = relationship(lazy="selectin")
 
-    __table_args__ = (UniqueConstraint("organization_id", "email", name="uq_team_org_email"),)
+    __table_args__ = (
+        UniqueConstraint("organization_id", "email", name="uq_team_org_email"),
+        # Mentions resolve by exact handle within an org, so two people in the
+        # same org sharing one would make "@priya" ambiguous.
+        UniqueConstraint("organization_id", "handle", name="uq_team_org_handle"),
+    )
 
 
 class Department(Base):

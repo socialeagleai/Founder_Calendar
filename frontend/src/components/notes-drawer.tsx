@@ -7,6 +7,7 @@ import {
   useStore,
   usePageAccess,
   audienceOf,
+  unreachableMentionWarning,
   EVERYONE_AUDIENCE,
   type Audience,
   type Note,
@@ -123,8 +124,10 @@ export function NotesDrawer({ date, onClose }: Props) {
   const save = async () => {
     if (!draft.trim()) return toast.error("Note can't be empty");
     try {
-      await saveNote(dateKey, draft.trim(), editingId ?? undefined, draftAudience);
+      const saved = await saveNote(dateKey, draft.trim(), editingId ?? undefined, draftAudience);
       toast.success(editingId ? "Note updated" : "Note saved");
+      const warning = unreachableMentionWarning(saved);
+      if (warning) toast.message(warning);
       cancel();
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Could not save note");

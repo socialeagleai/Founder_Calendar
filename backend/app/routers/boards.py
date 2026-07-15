@@ -1,4 +1,5 @@
 import uuid
+from datetime import datetime, timezone
 from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
@@ -15,6 +16,7 @@ from ..deps import (
     require_page_access,
 )
 from ..models import Board, BoardBox, Organization, TeamMember, User
+from ..notify_service import fanout, notify_mentions, notify_owner
 from ..schemas import (
     BoardCopyRequest,
     BoardCreateRequest,
@@ -32,6 +34,28 @@ router = APIRouter(prefix="/api", tags=["boards"])
 # Board page access. "view" lets a member manage their own boards; "edit" also
 # lets them change boards created by other members.
 require_board_access = require_page_access("board")
+
+
+def _board_activity(
+    db: Session, org: Organization, board: Board, actor: User, verb: str
+) -> None:
+    """Tell the board's creator someone else touched it.
+
+    Coalesced to one notification per actor, per board, per hour: a working
+    session is dozens of edits, and the creator wants "Bob updated Roadmap", not
+    forty rows of it. The hour bucket is in the dedupe key, and notify() refreshes
+    the existing unread row rather than adding another."""
+    hour = datetime.now(timezone.utc).strftime("%Y-%m-%d-%H")
+    notify_owner(
+        db,
+        org,
+        board,
+        actor=actor,
+        category="activity",
+        message=f"{actor.name} {verb} your board: {board.title}",
+        link=f"/board?id={board.id}",
+        dedupe_key=f"activity:board:{board.id}:{actor.id}:{hour}",
+    )
 
 
 def _get_board(db: Session, org: Organization, board_id: str) -> Board:
@@ -129,6 +153,17 @@ def create_board(
         visible_members=list(body.visible_members),
     )
     db.add(board)
+    db.flush()  # need the id for the link, same transaction as the fan-out
+    fanout(
+        db,
+        org,
+        board,
+        actor=user,
+        category="shared",
+        message=f"{user.name} added a board: {board.title}",
+        link=f"/board?id={board.id}",
+        dedupe_key=f"shared:board:{board.id}",
+    )
     db.commit()
     db.refresh(board)
     return _detail(board, user)
@@ -164,6 +199,11 @@ def rename_board(
         board.visibility = body.visibility
         board.visible_departments = list(body.visible_departments)
         board.visible_members = list(body.visible_members)
+    # Only a title change is worth telling the creator about. An audience change
+    # is the creator's own business, and this endpoint is also how the editor
+    # saves visibility - which the creator is usually the one doing.
+    if body.title is not None:
+        _board_activity(db, org, board, user, "renamed")
     db.commit()
     db.refresh(board)
     return _summary(board)
@@ -309,9 +349,27 @@ def add_box(
         color=body.color,
     )
     db.add(box)
+    db.flush()
+    _board_activity(db, org, board, user, "added a box to")
+    notify_mentions(
+        db,
+        org,
+        board,
+        actor=user,
+        text=f"{box.title or ''}\n{box.content or ''}",
+        message=f"{user.name} mentioned you on {board.title}",
+        link=f"/board?id={board.id}",
+        item_kind="box",
+        item_id=box.id,
+    )
     db.commit()
     db.refresh(box)
     return box
+
+
+# Changing any of these is something a person did to the board's content. Moving
+# or resizing a box is not - and the editor PATCHes on every drag frame.
+CONTENT_FIELDS = {"title", "content", "tasks", "color"}
 
 
 @router.patch("/boxes/{box_id}", response_model=BoxOut)
@@ -326,8 +384,27 @@ def update_box(
     box = _get_box(db, org, box_id)
     ensure_can_view(db, org, user, box.board, "board")
     ensure_owns_or_edit(level, box.board.user_id, user, "boards")
-    for field, value in body.model_dump(exclude_unset=True).items():
+    changed = body.model_dump(exclude_unset=True)
+    for field, value in changed.items():
         setattr(box, field, value)
+
+    # The board editor persists on every drag, resize and blur, so this endpoint
+    # is extremely hot. Notifying on geometry would spam the owner and run a full
+    # audience fan-out per mouse-move; skipping it costs nothing anyone wants.
+    if CONTENT_FIELDS & set(changed):
+        db.flush()
+        _board_activity(db, org, box.board, user, "updated")
+        notify_mentions(
+            db,
+            org,
+            box.board,
+            actor=user,
+            text=f"{box.title or ''}\n{box.content or ''}",
+            message=f"{user.name} mentioned you on {box.board.title}",
+            link=f"/board?id={box.board.id}",
+            item_kind="box",
+            item_id=box.id,
+        )
     db.commit()
     db.refresh(box)
     return box
@@ -344,6 +421,7 @@ def delete_box(
     box = _get_box(db, org, box_id)
     ensure_can_view(db, org, user, box.board, "board")
     ensure_owns_or_edit(level, box.board.user_id, user, "boards")
+    _board_activity(db, org, box.board, user, "removed a box from")
     db.delete(box)
     db.commit()
     return None

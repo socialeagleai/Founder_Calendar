@@ -11,6 +11,7 @@ import {
   useStore,
   usePageAccess,
   audienceOf,
+  unreachableMentionWarning,
   EVERYONE_AUDIENCE,
   type Audience,
   type Note,
@@ -77,8 +78,10 @@ function NewNoteDialog() {
     if (!isAudienceComplete(audience))
       return toast.error("Select at least one department or person, or change who can see this");
     try {
-      await saveNote(format(date, "yyyy-MM-dd"), content.trim(), undefined, audience);
+      const saved = await saveNote(format(date, "yyyy-MM-dd"), content.trim(), undefined, audience);
       toast.success("Note created");
+      const warning = unreachableMentionWarning(saved);
+      if (warning) toast.message(warning);
       reset();
       setOpen(false);
     } catch (err) {
@@ -158,8 +161,10 @@ function EditNoteDialog({ note }: { note: Note }) {
     if (!isAudienceComplete(audience))
       return toast.error("Select at least one department or person, or change who can see this");
     try {
-      await saveNote(note.date, content.trim(), note.id, audience);
+      const saved = await saveNote(note.date, content.trim(), note.id, audience);
       toast.success("Note updated");
+      const warning = unreachableMentionWarning(saved);
+      if (warning) toast.message(warning);
       setOpen(false);
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Could not update note");

@@ -261,6 +261,8 @@ class TeamMemberOut(CamelModel):
     id: str
     name: str
     email: EmailStr
+    # What teammates type to mention this person (without the leading "@").
+    handle: str = ""
     role: Role
     status: MemberStatus
     permissions: Permissions
@@ -302,6 +304,10 @@ class NoteOut(AudienceOut):
     content: str
     creator_name: str | None = None
     mine: bool = False  # created by the current user
+    # @handles in the content that name a real teammate who can't see this note.
+    # Returned on write so the author is told the mention went nowhere, rather
+    # than it failing silently. Empty on reads.
+    unreachable_mentions: list[str] = []
     created_at: datetime
     updated_at: datetime
 

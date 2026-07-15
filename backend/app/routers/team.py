@@ -3,12 +3,41 @@ from sqlalchemy.orm import Session
 
 from ..database import get_db
 from ..deps import get_current_org, get_current_user, require_page_edit
-from ..models import Department, Organization, TeamMember, User
+from ..mentions import slugify_handle, unique_handle
+from ..models import Department, Notification, Organization, TeamMember, User
 from ..schemas import InviteMemberRequest, TeamMemberOut, UpdateRoleRequest
 
 router = APIRouter(prefix="/api/team", tags=["team"])
 
 require_team_edit = require_page_edit("team")
+
+
+def _allocate_handle(db: Session, org: Organization, name: str) -> str:
+    """A mention handle for a new member, unique within the org."""
+    taken = {
+        h
+        for (h,) in db.query(TeamMember.handle).filter(
+            TeamMember.organization_id == org.id
+        )
+    }
+    return unique_handle(slugify_handle(name), taken)
+
+
+def _forget_notifications(db: Session, org: Organization, email: str) -> None:
+    """Drop someone's notifications for an org they're leaving.
+
+    Notification text outlives the permission that created it: "Alice updated
+    'Q3 Layoffs'" stays readable in the bell after its audience stops including
+    you, and the list query filters on user_id alone. The link would 403, but the
+    title already leaked. So when someone loses access to an org, the messages
+    about it go too."""
+    user = db.query(User).filter(User.email == email).first()
+    if user is None:
+        return
+    db.query(Notification).filter(
+        Notification.user_id == user.id,
+        Notification.organization_id == org.id,
+    ).delete(synchronize_session=False)
 
 
 def _get_member(db: Session, org: Organization, member_id: str) -> TeamMember:
@@ -72,6 +101,7 @@ def invite_member(
         organization_id=org.id,
         name=body.name,
         email=body.email,
+        handle=_allocate_handle(db, org, body.name),
         role=body.role,
         status="Invited",
         permissions=dict(body.permissions),
@@ -132,6 +162,7 @@ def remove_member(
     member = _get_member(db, org, member_id)
     if member.role == "Owner":
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Cannot remove the Owner")
+    _forget_notifications(db, org, member.email)
     db.delete(member)
     db.commit()
     return None

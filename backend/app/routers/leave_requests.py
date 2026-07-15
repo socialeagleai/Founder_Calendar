@@ -6,6 +6,7 @@ from ..deps import get_current_user
 from ..models import Organization, TeamMember, User
 from ..schemas import LeaveRequestOut, MessageResponse
 from .notifications import notify
+from .team import _forget_notifications
 
 router = APIRouter(prefix="/api/leave-requests", tags=["leave-requests"])
 
@@ -88,6 +89,12 @@ def accept_leave_request(
     member = _get_request(db, user, member_id)
     org = db.get(Organization, member.organization_id)
     org_name = org.name if org else "the organization"
+    # Drop anything they were told about this org before telling them they're
+    # out: those messages quote titles they can no longer open, and the bell
+    # filters on user_id alone. The approval notice itself is org-agnostic, so
+    # it survives - which is the point of it.
+    if org is not None:
+        _forget_notifications(db, org, member.email)
     _notify_member(
         db,
         member,

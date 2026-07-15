@@ -133,13 +133,7 @@ function InviteDialog() {
     e.preventDefault();
     if (!name.trim() || !email.trim()) return toast.error("Name and email required");
     try {
-      await inviteMember(
-        name.trim(),
-        email.trim(),
-        role,
-        perms,
-        dept === NO_DEPT ? null : dept,
-      );
+      await inviteMember(name.trim(), email.trim(), role, perms, dept === NO_DEPT ? null : dept);
       toast.success(`Invited ${name}`);
       reset();
       setOpen(false);
@@ -307,7 +301,12 @@ function DepartmentsCard() {
 
   const remove = async (d: Department) => {
     const count = team.filter((m) => m.departmentId === d.id).length;
-    if (count > 0 && !confirm(`Delete "${d.name}"? ${count} member${count === 1 ? "" : "s"} will become unassigned.`))
+    if (
+      count > 0 &&
+      !confirm(
+        `Delete "${d.name}"? ${count} member${count === 1 ? "" : "s"} will become unassigned.`,
+      )
+    )
       return;
     try {
       await deleteDepartment(d.id);
@@ -454,7 +453,19 @@ function TeamPage() {
                         {m.name.charAt(0).toUpperCase()}
                       </div>
                       <div className="min-w-0">
-                        <div className="truncate font-semibold">{m.name}</div>
+                        <div className="flex items-center gap-2">
+                          <span className="truncate font-semibold">{m.name}</span>
+                          {/* The handle teammates type to mention this person.
+                              Shown here because it's the only way to discover it. */}
+                          {m.handle && (
+                            <span
+                              className="shrink-0 rounded bg-secondary px-1.5 py-0.5 font-mono text-[11px] text-muted-foreground"
+                              title={`Mention with @${m.handle}`}
+                            >
+                              @{m.handle}
+                            </span>
+                          )}
+                        </div>
                         <div className="truncate text-xs text-muted-foreground">{m.email}</div>
                       </div>
                     </div>

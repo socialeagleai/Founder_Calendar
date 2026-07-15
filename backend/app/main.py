@@ -22,6 +22,32 @@ from .routers import (
 )
 
 
+def _backfill_handles() -> None:
+    """Give every member without an @handle one derived from their name, unique
+    within their org. Needs real Python (slugify + collision suffixing), so it
+    can't be the usual one-line UPDATE. Idempotent: only touches empty handles."""
+    from .database import SessionLocal
+    from .mentions import slugify_handle, unique_handle
+    from .models import TeamMember
+
+    db = SessionLocal()
+    try:
+        missing = db.query(TeamMember).filter(TeamMember.handle == "").all()
+        if not missing:
+            return
+        taken: dict[str, set[str]] = {}
+        for m in db.query(TeamMember).filter(TeamMember.handle != "").all():
+            taken.setdefault(m.organization_id, set()).add(m.handle)
+        for m in missing:
+            org_taken = taken.setdefault(m.organization_id, set())
+            handle = unique_handle(slugify_handle(m.name), org_taken)
+            m.handle = handle
+            org_taken.add(handle)
+        db.commit()
+    finally:
+        db.close()
+
+
 def _run_lightweight_migrations() -> None:
     """create_all() never ALTERs existing tables, so add columns introduced
     after a table first shipped. Idempotent - safe to run on every startup.
@@ -142,6 +168,26 @@ def _run_lightweight_migrations() -> None:
                 text(
                     "CREATE UNIQUE INDEX IF NOT EXISTS uq_notification_user_dedupe "
                     "ON notifications (user_id, dedupe_key)"
+                )
+            )
+
+    # @handles for mentions. Existing members get one derived from their name.
+    # Order matters: every row defaults to '' and the index is unique per org, so
+    # the backfill has to finish before the index is created or the second member
+    # of any org collides with the first.
+    if "team_members" in inspector.get_table_names():
+        cols = {c["name"] for c in inspector.get_columns("team_members")}
+        if "handle" not in cols:
+            with engine.begin() as conn:
+                conn.execute(
+                    text("ALTER TABLE team_members ADD COLUMN handle VARCHAR(64) NOT NULL DEFAULT ''")
+                )
+        _backfill_handles()
+        with engine.begin() as conn:
+            conn.execute(
+                text(
+                    "CREATE UNIQUE INDEX IF NOT EXISTS uq_team_org_handle "
+                    "ON team_members (organization_id, handle)"
                 )
             )
 

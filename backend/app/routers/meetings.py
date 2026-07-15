@@ -1,3 +1,4 @@
+from datetime import datetime, timezone
 from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
@@ -14,6 +15,7 @@ from ..deps import (
     require_page_access,
 )
 from ..models import Meeting, Organization, User
+from ..notify_service import fanout, notify_mentions, notify_owner
 from ..schemas import (
     MeetingCopyRequest,
     MeetingCreateRequest,
@@ -43,6 +45,22 @@ def _get_meeting(db: Session, org: Organization, meeting_id: str) -> Meeting:
 def _detail(m: Meeting, user: User) -> Meeting:
     m.mine = m.user_id == user.id  # type: ignore[attr-defined]
     return m
+
+
+def _agenda_text(m: Meeting) -> str:
+    """The agenda flattened to plain text, for scanning @mentions. Sections are a
+    nested JSON doc (title + body + items), and someone can @mention a teammate in
+    any of those, so all of it has to be looked at."""
+    parts: list[str] = []
+    for section in m.sections or []:
+        if not isinstance(section, dict):
+            continue
+        parts.append(str(section.get("title") or ""))
+        parts.append(str(section.get("body") or ""))
+        for item in section.get("items") or []:
+            if isinstance(item, dict):
+                parts.append(str(item.get("text") or ""))
+    return "\n".join(p for p in parts if p)
 
 
 def _summary(m: Meeting) -> MeetingSummaryOut:
@@ -110,6 +128,30 @@ def create_meeting(
         visible_members=list(body.visible_members),
     )
     db.add(meeting)
+    db.flush()  # need the id for the link, same transaction as the fan-out
+    # Mentions first so the fan-out can skip anyone already pinged by name.
+    mentions = notify_mentions(
+        db,
+        org,
+        meeting,
+        actor=user,
+        text=_agenda_text(meeting),
+        message=f"{user.name} mentioned you in {meeting.name}",
+        link=f"/meeting?id={meeting.id}",
+        item_kind="meeting",
+        item_id=meeting.id,
+    )
+    fanout(
+        db,
+        org,
+        meeting,
+        actor=user,
+        category="shared",
+        message=f"{user.name} scheduled {meeting.name} on {meeting.date}",
+        link=f"/meeting?id={meeting.id}",
+        dedupe_key=f"shared:meeting:{meeting.id}",
+        also_exclude=mentions.notified,
+    )
     db.commit()
     db.refresh(meeting)
     return _detail(meeting, user)
@@ -189,6 +231,37 @@ def update_meeting(
         meeting.visibility = body.visibility
         meeting.visible_departments = list(body.visible_departments)
         meeting.visible_members = list(body.visible_members)
+
+    # Content changes are activity; an audience-only change isn't (that's the
+    # creator managing their own meeting, and it's how the editor saves it).
+    if {"name", "date", "schedule", "duration", "sections"} & set(
+        body.model_dump(exclude_unset=True)
+    ):
+        db.flush()
+        hour = datetime.now(timezone.utc).strftime("%Y-%m-%d-%H")
+        notify_owner(
+            db,
+            org,
+            meeting,
+            actor=user,
+            category="activity",
+            message=f"{user.name} updated your meeting: {meeting.name}",
+            link=f"/meeting?id={meeting.id}",
+            # One row per editor per meeting per hour - editing an agenda is many
+            # small saves, and the creator wants a fact, not a feed.
+            dedupe_key=f"activity:meeting:{meeting.id}:{user.id}:{hour}",
+        )
+        notify_mentions(
+            db,
+            org,
+            meeting,
+            actor=user,
+            text=_agenda_text(meeting),
+            message=f"{user.name} mentioned you in {meeting.name}",
+            link=f"/meeting?id={meeting.id}",
+            item_kind="meeting",
+            item_id=meeting.id,
+        )
     db.commit()
     db.refresh(meeting)
     return _detail(meeting, user)
