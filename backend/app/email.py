@@ -81,6 +81,45 @@ def send_bulk(messages: list[tuple[str, str, str, str]]) -> int:
     return sent
 
 
+def _shell(body_html: str) -> str:
+    return (
+        '<div style="font-family:Inter,Arial,sans-serif;max-width:480px;'
+        'margin:0 auto;color:#1a1a1a">' + body_html + "</div>"
+    )
+
+
+def _button(url: str, label: str) -> str:
+    return (
+        f'<p style="margin:24px 0"><a href="{esc(url)}" style="background:#C4162A;'
+        'color:#fff;text-decoration:none;padding:12px 22px;border-radius:8px;'
+        f'font-weight:600;display:inline-block">{esc(label)}</a></p>'
+    )
+
+
+def _footer() -> str:
+    return (
+        '<p style="color:#999;font-size:12px;margin-top:28px;border-top:1px solid #eee;'
+        'padding-top:12px">You can turn these emails off in Founder Calendar under '
+        "Settings &rarr; Preferences.</p>"
+    )
+
+
+def notification_email(name: str, message: str, url: str) -> tuple[str, str]:
+    """(html, text) for a single notification.
+
+    Carries the same one-line message as the bell and nothing more. Deliberately
+    no note content: an email outlives the permission that produced it - it sits
+    in an inbox, forwardable, long after the item is deleted or its audience
+    narrowed - so only the fact and a link travel, never the substance."""
+    text = f"Hi {name},\n\n{message}\n\n{url}\n\nTurn these off in Settings > Preferences."
+    html = _shell(
+        f'<p>Hi {esc(name)},</p><p style="font-size:16px">{esc(message)}</p>'
+        + _button(url, "Open Founder Calendar")
+        + _footer()
+    )
+    return html, text
+
+
 def reset_password_email(name: str, link: str, expires_minutes: int) -> tuple[str, str]:
     """Returns (html, text) for a password-reset email."""
     # Plain text is built from the raw values; only the HTML half is escaped.

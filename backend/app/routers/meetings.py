@@ -1,7 +1,7 @@
 from datetime import datetime, timezone
 from typing import Literal
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
 
 from ..database import get_db
@@ -15,7 +15,7 @@ from ..deps import (
     require_page_access,
 )
 from ..models import Meeting, Organization, User
-from ..notify_service import fanout, notify_mentions, notify_owner
+from ..notify_service import EmailMessage, fanout, notify_mentions, notify_owner, send_later
 from ..schemas import (
     MeetingCopyRequest,
     MeetingCreateRequest,
@@ -111,6 +111,7 @@ def list_meetings(
 )
 def create_meeting(
     body: MeetingCreateRequest,
+    background: BackgroundTasks,
     org: Organization = Depends(get_current_org),
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
@@ -129,6 +130,7 @@ def create_meeting(
     )
     db.add(meeting)
     db.flush()  # need the id for the link, same transaction as the fan-out
+    outbox: list[EmailMessage] = []
     # Mentions first so the fan-out can skip anyone already pinged by name.
     mentions = notify_mentions(
         db,
@@ -140,6 +142,7 @@ def create_meeting(
         link=f"/meeting?id={meeting.id}",
         item_kind="meeting",
         item_id=meeting.id,
+        outbox=outbox,
     )
     fanout(
         db,
@@ -151,8 +154,10 @@ def create_meeting(
         link=f"/meeting?id={meeting.id}",
         dedupe_key=f"shared:meeting:{meeting.id}",
         also_exclude=mentions.notified,
+        outbox=outbox,
     )
     db.commit()
+    send_later(background, outbox)
     db.refresh(meeting)
     return _detail(meeting, user)
 
@@ -209,6 +214,7 @@ def get_meeting(
 def update_meeting(
     meeting_id: str,
     body: MeetingUpdateRequest,
+    background: BackgroundTasks,
     org: Organization = Depends(get_current_org),
     user: User = Depends(get_current_user),
     level: str = Depends(require_meeting_access),
@@ -234,6 +240,7 @@ def update_meeting(
 
     # Content changes are activity; an audience-only change isn't (that's the
     # creator managing their own meeting, and it's how the editor saves it).
+    outbox: list[EmailMessage] = []
     if {"name", "date", "schedule", "duration", "sections"} & set(
         body.model_dump(exclude_unset=True)
     ):
@@ -250,6 +257,7 @@ def update_meeting(
             # One row per editor per meeting per hour - editing an agenda is many
             # small saves, and the creator wants a fact, not a feed.
             dedupe_key=f"activity:meeting:{meeting.id}:{user.id}:{hour}",
+            outbox=outbox,
         )
         notify_mentions(
             db,
@@ -261,8 +269,10 @@ def update_meeting(
             link=f"/meeting?id={meeting.id}",
             item_kind="meeting",
             item_id=meeting.id,
+            outbox=outbox,
         )
     db.commit()
+    send_later(background, outbox)
     db.refresh(meeting)
     return _detail(meeting, user)
 

@@ -2,7 +2,7 @@ import uuid
 from datetime import datetime, timezone
 from typing import Literal
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
 
 from ..database import get_db
@@ -16,7 +16,7 @@ from ..deps import (
     require_page_access,
 )
 from ..models import Board, BoardBox, Organization, TeamMember, User
-from ..notify_service import fanout, notify_mentions, notify_owner
+from ..notify_service import EmailMessage, fanout, notify_mentions, notify_owner, send_later
 from ..schemas import (
     BoardCopyRequest,
     BoardCreateRequest,
@@ -37,7 +37,12 @@ require_board_access = require_page_access("board")
 
 
 def _board_activity(
-    db: Session, org: Organization, board: Board, actor: User, verb: str
+    db: Session,
+    org: Organization,
+    board: Board,
+    actor: User,
+    verb: str,
+    outbox: list[EmailMessage] | None = None,
 ) -> None:
     """Tell the board's creator someone else touched it.
 
@@ -55,6 +60,7 @@ def _board_activity(
         message=f"{actor.name} {verb} your board: {board.title}",
         link=f"/board?id={board.id}",
         dedupe_key=f"activity:board:{board.id}:{actor.id}:{hour}",
+        outbox=outbox,
     )
 
 
@@ -139,6 +145,7 @@ def list_boards(
 )
 def create_board(
     body: BoardCreateRequest,
+    background: BackgroundTasks,
     org: Organization = Depends(get_current_org),
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
@@ -154,6 +161,7 @@ def create_board(
     )
     db.add(board)
     db.flush()  # need the id for the link, same transaction as the fan-out
+    outbox: list[EmailMessage] = []
     fanout(
         db,
         org,
@@ -163,8 +171,10 @@ def create_board(
         message=f"{user.name} added a board: {board.title}",
         link=f"/board?id={board.id}",
         dedupe_key=f"shared:board:{board.id}",
+        outbox=outbox,
     )
     db.commit()
+    send_later(background, outbox)
     db.refresh(board)
     return _detail(board, user)
 
@@ -185,6 +195,7 @@ def get_board(
 def rename_board(
     board_id: str,
     body: BoardUpdateRequest,
+    background: BackgroundTasks,
     org: Organization = Depends(get_current_org),
     user: User = Depends(get_current_user),
     level: str = Depends(require_board_access),
@@ -202,9 +213,11 @@ def rename_board(
     # Only a title change is worth telling the creator about. An audience change
     # is the creator's own business, and this endpoint is also how the editor
     # saves visibility - which the creator is usually the one doing.
+    outbox: list[EmailMessage] = []
     if body.title is not None:
-        _board_activity(db, org, board, user, "renamed")
+        _board_activity(db, org, board, user, "renamed", outbox)
     db.commit()
+    send_later(background, outbox)
     db.refresh(board)
     return _summary(board)
 
@@ -329,6 +342,7 @@ def get_shared_board(
 def add_box(
     board_id: str,
     body: BoxCreateRequest,
+    background: BackgroundTasks,
     org: Organization = Depends(get_current_org),
     user: User = Depends(get_current_user),
     level: str = Depends(require_board_access),
@@ -350,7 +364,8 @@ def add_box(
     )
     db.add(box)
     db.flush()
-    _board_activity(db, org, board, user, "added a box to")
+    outbox: list[EmailMessage] = []
+    _board_activity(db, org, board, user, "added a box to", outbox)
     notify_mentions(
         db,
         org,
@@ -361,8 +376,10 @@ def add_box(
         link=f"/board?id={board.id}",
         item_kind="box",
         item_id=box.id,
+        outbox=outbox,
     )
     db.commit()
+    send_later(background, outbox)
     db.refresh(box)
     return box
 
@@ -376,6 +393,7 @@ CONTENT_FIELDS = {"title", "content", "tasks", "color"}
 def update_box(
     box_id: str,
     body: BoxUpdateRequest,
+    background: BackgroundTasks,
     org: Organization = Depends(get_current_org),
     user: User = Depends(get_current_user),
     level: str = Depends(require_board_access),
@@ -391,9 +409,10 @@ def update_box(
     # The board editor persists on every drag, resize and blur, so this endpoint
     # is extremely hot. Notifying on geometry would spam the owner and run a full
     # audience fan-out per mouse-move; skipping it costs nothing anyone wants.
+    outbox: list[EmailMessage] = []
     if CONTENT_FIELDS & set(changed):
         db.flush()
-        _board_activity(db, org, box.board, user, "updated")
+        _board_activity(db, org, box.board, user, "updated", outbox)
         notify_mentions(
             db,
             org,
@@ -404,8 +423,10 @@ def update_box(
             link=f"/board?id={box.board.id}",
             item_kind="box",
             item_id=box.id,
+            outbox=outbox,
         )
     db.commit()
+    send_later(background, outbox)
     db.refresh(box)
     return box
 
@@ -413,6 +434,7 @@ def update_box(
 @router.delete("/boxes/{box_id}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_box(
     box_id: str,
+    background: BackgroundTasks,
     org: Organization = Depends(get_current_org),
     user: User = Depends(get_current_user),
     level: str = Depends(require_board_access),
@@ -421,7 +443,9 @@ def delete_box(
     box = _get_box(db, org, box_id)
     ensure_can_view(db, org, user, box.board, "board")
     ensure_owns_or_edit(level, box.board.user_id, user, "boards")
-    _board_activity(db, org, box.board, user, "removed a box from")
+    outbox: list[EmailMessage] = []
+    _board_activity(db, org, box.board, user, "removed a box from", outbox)
     db.delete(box)
     db.commit()
+    send_later(background, outbox)
     return None

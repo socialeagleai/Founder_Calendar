@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
 from ..database import get_db
@@ -12,7 +12,7 @@ from ..deps import (
     require_page_access,
 )
 from ..models import Note, Organization, User
-from ..notify_service import fanout, notify_mentions
+from ..notify_service import EmailMessage, fanout, notify_mentions, send_later
 from ..schemas import NoteCreateRequest, NoteOut, NoteUpdateRequest
 
 router = APIRouter(prefix="/api/notes", tags=["notes"])
@@ -67,6 +67,7 @@ def list_notes(
 )
 def create_note(
     body: NoteCreateRequest,
+    background: BackgroundTasks,
     org: Organization = Depends(get_current_org),
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
@@ -87,6 +88,7 @@ def create_note(
     # get half-saved with nobody told about it.
     db.flush()
     link = f"/calendar?date={note.date}"
+    outbox: list[EmailMessage] = []
     # Mentions first, so the fan-out can skip anyone already pinged by name -
     # otherwise being @mentioned in a note visible to everyone earns you two
     # notifications about the same note.
@@ -100,6 +102,7 @@ def create_note(
         link=link,
         item_kind="note",
         item_id=note.id,
+        outbox=outbox,
     )
     fanout(
         db,
@@ -111,8 +114,10 @@ def create_note(
         link=link,
         dedupe_key=f"shared:note:{note.id}",
         also_exclude=mentions.notified,
+        outbox=outbox,
     )
     db.commit()
+    send_later(background, outbox)
     db.refresh(note)
     return _out(note, user, mentions.unreachable)
 
@@ -121,6 +126,7 @@ def create_note(
 def update_note(
     note_id: str,
     body: NoteUpdateRequest,
+    background: BackgroundTasks,
     org: Organization = Depends(get_current_org),
     user: User = Depends(get_current_user),
     level: str = Depends(require_calendar_access),
@@ -141,6 +147,7 @@ def update_note(
     # wholesale and we can't tell what's new. The dedupe key carries no time
     # component, so an existing mention resolves to a row that already exists
     # and nobody is pinged twice; only a newly added @handle produces anything.
+    outbox: list[EmailMessage] = []
     mentions = notify_mentions(
         db,
         org,
@@ -151,8 +158,10 @@ def update_note(
         link=f"/calendar?date={note.date}",
         item_kind="note",
         item_id=note.id,
+        outbox=outbox,
     )
     db.commit()
+    send_later(background, outbox)
     db.refresh(note)
     return _out(note, user, mentions.unreachable)
 

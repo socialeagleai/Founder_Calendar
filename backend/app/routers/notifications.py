@@ -1,4 +1,5 @@
 from datetime import datetime, timezone
+from typing import NamedTuple
 
 from fastapi import APIRouter, Depends, Header, HTTPException, status
 from sqlalchemy import or_
@@ -31,6 +32,20 @@ COALESCING_TYPES = {"activity"}
 router = APIRouter(prefix="/api/notifications", tags=["notifications"])
 
 
+class NotifyResult(NamedTuple):
+    """What notify() did.
+
+    `created` is the one callers care about: it's False when the row was
+    coalesced into an existing unread notification, or skipped because a
+    dismissed one already covers it. Only a genuinely new row should trigger a
+    second channel - otherwise five coalesced edits become one bell row and five
+    emails, which is the opposite of the point.
+    """
+
+    row: Notification | None
+    created: bool
+
+
 def notify(
     db: Session,
     user_id: str,
@@ -40,7 +55,7 @@ def notify(
     link: str = "",
     organization_id: str | None = None,
     dedupe_key: str | None = None,
-) -> Notification | None:
+) -> NotifyResult:
     """Queue an in-app notification for a user. The caller commits.
 
     When `dedupe_key` is given the write is idempotent per user: an existing
@@ -61,11 +76,11 @@ def notify(
         )
         if existing is not None:
             if existing.read:
-                return None
+                return NotifyResult(None, False)
             existing.message = message
             existing.link = link
             existing.created_at = _now()
-            return existing
+            return NotifyResult(existing, False)
 
     row = Notification(
         user_id=user_id,
@@ -76,7 +91,7 @@ def notify(
         dedupe_key=dedupe_key,
     )
     db.add(row)
-    return row
+    return NotifyResult(row, True)
 
 
 def unread_for(db: Session, user: User, org_id: str | None = None) -> list[Notification]:

@@ -19,13 +19,46 @@ Two traps this handles that a naive member loop does not:
 
 from dataclasses import dataclass
 
+from fastapi import BackgroundTasks
 from sqlalchemy.orm import Session
 
+from .config import settings
 from .deps import can_view_item
+from .email import notification_email, send_bulk
 from .mentions import extract_handles
 from .models import Organization, TeamMember, User
 from .prefs import Prefs, prefs_for, prefs_for_many
 from .routers.notifications import notify
+
+# (to, subject, html, text) - deliberately plain strings. These are handed to a
+# FastAPI BackgroundTask, which runs after the response and after dependency
+# teardown: by then the request's DB session is closed, so passing an ORM object
+# or the session itself would blow up on attribute access.
+EmailMessage = tuple[str, str, str, str]
+
+
+def send_later(background: BackgroundTasks, outbox: list[EmailMessage]) -> None:
+    """Hand queued emails to a background task. Call only AFTER a successful
+    commit - if the write rolled back, nobody should be told it happened.
+
+    send_bulk is blocking SMTP (a TLS handshake and up to a 15s timeout per
+    message), so it must not sit in the request path."""
+    if outbox:
+        background.add_task(send_bulk, outbox)
+
+
+def _queue_email(
+    outbox: list[EmailMessage] | None,
+    recipient: "Recipient",
+    message: str,
+    link: str,
+) -> None:
+    """Add an email for this notification, if the recipient wants email at all."""
+    if outbox is None or not recipient.prefs.email_enabled:
+        return
+    url = f"{settings.app_base_url.rstrip('/')}{link}" if link else settings.app_base_url
+    html, text = notification_email(recipient.user.name, message, url)
+    outbox.append((recipient.user.email, message, html, text))
 
 
 @dataclass(frozen=True)
@@ -117,6 +150,7 @@ def fanout(
     link: str,
     dedupe_key: str | None = None,
     also_exclude: set[str] | None = None,
+    outbox: list[EmailMessage] | None = None,
 ) -> int:
     """Notify everyone who can see `item` about it. Returns how many were queued.
 
@@ -133,7 +167,7 @@ def fanout(
         exclude.add(item.user_id)
     sent = 0
     for r in recipients_for(db, org, item, category, exclude_user_ids=exclude):
-        notify(
+        result = notify(
             db,
             r.user.id,
             message,
@@ -142,7 +176,12 @@ def fanout(
             organization_id=org.id,
             dedupe_key=f"{dedupe_key}:{r.user.id}" if dedupe_key else None,
         )
-        sent += 1
+        # Email only a genuinely new row. A coalesced one already emailed when it
+        # was first created; a skipped one was dismissed. Either way, sending
+        # again would mean one bell row and N emails.
+        if result.created:
+            _queue_email(outbox, r, message, link)
+            sent += 1
     return sent
 
 
@@ -157,6 +196,7 @@ def notify_mentions(
     link: str,
     item_kind: str,
     item_id: str,
+    outbox: list[EmailMessage] | None = None,
 ) -> MentionResult:
     """Notify everyone @mentioned in `text` who can see `item`.
 
@@ -202,13 +242,14 @@ def notify_mentions(
             continue
         if user.id == actor.id:
             continue  # mentioning yourself is not an event
-        if not prefs_for(db, user.id).wants("mention"):
+        prefs = prefs_for(db, user.id)
+        if not prefs.wants("mention"):
             # Muted: skip quietly, and don't report it to the author - that would
             # be false ("they can't see it") and would leak their settings. Still
             # counts as handled, so they don't get the generic fan-out instead.
             notified.add(user.id)
             continue
-        notify(
+        result = notify(
             db,
             user.id,
             message,
@@ -217,6 +258,8 @@ def notify_mentions(
             organization_id=org.id,
             dedupe_key=f"mention:{item_kind}:{item_id}:{user.id}",
         )
+        if result.created:
+            _queue_email(outbox, Recipient(user=user, member=m, prefs=prefs), message, link)
         notified.add(user.id)
     return MentionResult(unreachable, notified)
 
@@ -231,6 +274,7 @@ def notify_owner(
     message: str,
     link: str,
     dedupe_key: str | None = None,
+    outbox: list[EmailMessage] | None = None,
 ) -> bool:
     """Tell the item's creator that someone else touched their thing.
 
@@ -246,7 +290,7 @@ def notify_owner(
     target = next((r for r in recipients if r.user.id == creator_id), None)
     if target is None:
         return False
-    notify(
+    result = notify(
         db,
         target.user.id,
         message,
@@ -255,4 +299,6 @@ def notify_owner(
         organization_id=org.id,
         dedupe_key=f"{dedupe_key}:{target.user.id}" if dedupe_key else None,
     )
-    return True
+    if result.created:
+        _queue_email(outbox, target, message, link)
+    return result.created
