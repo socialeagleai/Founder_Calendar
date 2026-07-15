@@ -13,6 +13,8 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { useStore, useCurrentUser, type NotificationPrefs } from "@/lib/store";
+import { api } from "@/lib/api";
+import { disablePush, enablePush, pushPermission, pushSupported } from "@/lib/push";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
 
@@ -236,7 +238,79 @@ function NotificationSettings() {
           onChange={(v) => save({ emailEnabled: v })}
         />
       </Card>
+
+      <PushCard prefs={prefs} save={save} />
     </>
+  );
+}
+
+function PushCard({
+  prefs,
+  save,
+}: {
+  prefs: NotificationPrefs;
+  save: (patch: Partial<NotificationPrefs>) => void;
+}) {
+  // "Can this browser do push, and is it set up on the server" is only knowable
+  // in the browser, so it starts false and resolves in an effect. Computing it
+  // during render would throw on the server (this app is SSR'd) and mismatch on
+  // hydration.
+  const [available, setAvailable] = useState(false);
+  const [blocked, setBlocked] = useState(false);
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    if (!pushSupported()) return;
+    setBlocked(pushPermission() === "denied");
+    // Don't offer a switch that can't work: if the server has no VAPID keys,
+    // push is off and saying so is better than a toggle that silently no-ops.
+    void api
+      .getPushConfig()
+      .then((c) => setAvailable(c.enabled && !!c.publicKey))
+      .catch(() => setAvailable(false));
+  }, []);
+
+  // Nothing to show rather than a dead control.
+  if (!available) return null;
+
+  const toggle = async (on: boolean) => {
+    setBusy(true);
+    try {
+      if (on) {
+        await enablePush();
+        save({ pushEnabled: true });
+        toast.success("Browser notifications on");
+      } else {
+        await disablePush();
+        save({ pushEnabled: false });
+        toast.message("Browser notifications off");
+      }
+      setBlocked(pushPermission() === "denied");
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Could not change notifications");
+      setBlocked(pushPermission() === "denied");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <Card
+      title="Browser notifications"
+      desc="Get notified on this device, even when the tab is closed."
+    >
+      <PrefRow
+        label="Browser notifications"
+        desc={
+          blocked
+            ? "Blocked for this site - allow notifications in your browser's site settings first."
+            : "You'll be asked for permission once, on this device."
+        }
+        checked={prefs.pushEnabled && !blocked}
+        onChange={(v) => void toggle(v)}
+        disabled={busy || blocked}
+      />
+    </Card>
   );
 }
 
@@ -245,11 +319,13 @@ function PrefRow({
   desc,
   checked,
   onChange,
+  disabled,
 }: {
   label: string;
   desc: string;
   checked: boolean;
   onChange: (v: boolean) => void;
+  disabled?: boolean;
 }) {
   return (
     <div className="flex items-center justify-between gap-4 border-b border-border py-4 last:border-0 last:pb-0 first:pt-0">
@@ -257,7 +333,7 @@ function PrefRow({
         <p className="text-sm font-semibold">{label}</p>
         <p className="text-xs text-muted-foreground">{desc}</p>
       </div>
-      <Switch checked={checked} onCheckedChange={onChange} />
+      <Switch checked={checked} onCheckedChange={onChange} disabled={disabled} />
     </div>
   );
 }

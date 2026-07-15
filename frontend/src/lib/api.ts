@@ -30,6 +30,8 @@ import type {
   NotificationPrefs,
   Organization,
   OrgMembership,
+  PushConfig,
+  PushSubscriptionKeys,
   Permissions,
   Role,
   TeamMember,
@@ -247,6 +249,18 @@ export const api = {
   // Everything the bell renders in one round trip. It polls on an interval, so
   // fetching the feeds separately re-paid the auth + org-resolve cost per feed.
   getBell: () => request<Bell>("/api/bell"),
+
+  // ---- web push ----
+  // The VAPID public key comes from the API, not a VITE_ build var: those are
+  // inlined at build time, so a key change would need a frontend rebuild and a
+  // stale one would make push silently no-op. No auth - it's a public key.
+  getPushConfig: () => request<PushConfig>("/api/push/vapid-public-key", { auth: false }),
+
+  subscribePush: (sub: PushSubscriptionKeys) =>
+    request<void>("/api/push/subscribe", { method: "POST", body: sub }),
+
+  unsubscribePush: (endpoint: string) =>
+    request<void>("/api/push/unsubscribe", { method: "POST", body: { endpoint } }),
 
   // ---- notes ----
   getNotes: () => request<Note[]>("/api/notes"),

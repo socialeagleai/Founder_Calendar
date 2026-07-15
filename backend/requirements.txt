@@ -14,3 +14,6 @@ requests==2.32.3
 # so without this every ZoneInfo("Asia/Kolkata") raises at runtime and
 # available_timezones() is empty - notification prefs and the digest need both.
 tzdata==2026.3
+# Web Push (VAPID + payload encryption). Blocking requests under the hood, so
+# it gets the same background-task treatment as SMTP.
+pywebpush==2.3.0

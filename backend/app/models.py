@@ -102,6 +102,32 @@ class Notification(Base):
     )
 
 
+class PushSubscription(Base):
+    """One browser's Web Push endpoint for a user.
+
+    A person can have several (work laptop, home desktop) so this is per browser,
+    not per user. The endpoint URL is the identity - it's what the push service
+    hands us and what we post to - so it carries the unique constraint. Rows are
+    deleted when the push service reports the endpoint is gone (404/410): the
+    only way a subscription ends is the browser telling us, and only when we try
+    to use it."""
+
+    __tablename__ = "push_subscriptions"
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=_uuid)
+    user_id: Mapped[str] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), index=True, nullable=False
+    )
+    # Push service URL for this browser. Long: FCM endpoints run to ~200 chars,
+    # and the spec sets no limit.
+    endpoint: Mapped[str] = mapped_column(String(512), unique=True, nullable=False)
+    # The browser's public key and auth secret, used to encrypt the payload so
+    # the push service can't read it.
+    p256dh: Mapped[str] = mapped_column(String(255), nullable=False)
+    auth: Mapped[str] = mapped_column(String(255), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
+
+
 class NotificationPreference(Base):
     """Per-user notification settings. A row only exists once the user changes
     something - `prefs_for()` resolves defaults in code for everyone else, so

@@ -17,7 +17,7 @@ Two traps this handles that a naive member loop does not:
     and mailing org content to an unverified address is not ours to do.
 """
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from fastapi import BackgroundTasks
 from sqlalchemy.orm import Session
@@ -28,6 +28,7 @@ from .email import notification_email, send_bulk
 from .mentions import extract_handles
 from .models import Organization, TeamMember, User
 from .prefs import Prefs, prefs_for, prefs_for_many
+from .push import PushMessage, build_messages, send_push
 from .routers.notifications import notify
 
 # (to, subject, html, text) - deliberately plain strings. These are handed to a
@@ -37,28 +38,57 @@ from .routers.notifications import notify
 EmailMessage = tuple[str, str, str, str]
 
 
-def send_later(background: BackgroundTasks, outbox: list[EmailMessage]) -> None:
-    """Hand queued emails to a background task. Call only AFTER a successful
-    commit - if the write rolled back, nobody should be told it happened.
+@dataclass
+class Outbox:
+    """Off-app deliveries queued during a request, sent once it has committed.
 
-    send_bulk is blocking SMTP (a TLS handshake and up to a 15s timeout per
-    message), so it must not sit in the request path."""
-    if outbox:
-        background.add_task(send_bulk, outbox)
+    Collected rather than sent inline because both channels are blocking network
+    calls (SMTP handshakes, HTTP to push services) that have no business sitting
+    between the user and their response."""
+
+    emails: list[EmailMessage] = field(default_factory=list)
+    pushes: list[PushMessage] = field(default_factory=list)
+
+    def __bool__(self) -> bool:
+        return bool(self.emails or self.pushes)
 
 
-def _queue_email(
-    outbox: list[EmailMessage] | None,
+def send_later(background: BackgroundTasks, outbox: Outbox) -> None:
+    """Hand queued deliveries to background tasks. Call only AFTER a successful
+    commit - if the write rolled back, nobody should be told it happened."""
+    if outbox.emails:
+        background.add_task(send_bulk, outbox.emails)
+    if outbox.pushes:
+        background.add_task(send_push, outbox.pushes)
+
+
+def _queue_channels(
+    db: Session,
+    outbox: Outbox | None,
     recipient: "Recipient",
     message: str,
     link: str,
+    push_body: str,
 ) -> None:
-    """Add an email for this notification, if the recipient wants email at all."""
-    if outbox is None or not recipient.prefs.email_enabled:
+    """Queue the off-app channels this recipient has switched on.
+
+    `message` is the full bell text (titles, never content). `push_body` is a
+    deliberately vaguer version: a push renders unprompted on a screen that may
+    be locked, in a cafe, or shared - and unlike the bell and the inbox, we can't
+    assume the person in front of it is the recipient. So push says come and
+    look, and the specifics live behind the click."""
+    if outbox is None:
         return
-    url = f"{settings.app_base_url.rstrip('/')}{link}" if link else settings.app_base_url
-    html, text = notification_email(recipient.user.name, message, url)
-    outbox.append((recipient.user.email, message, html, text))
+    if recipient.prefs.email_enabled:
+        url = (
+            f"{settings.app_base_url.rstrip('/')}{link}" if link else settings.app_base_url
+        )
+        html, text = notification_email(recipient.user.name, message, url)
+        outbox.emails.append((recipient.user.email, message, html, text))
+    if recipient.prefs.push_enabled:
+        outbox.pushes.extend(
+            build_messages(db, recipient.user.id, "Founder Calendar", push_body, link)
+        )
 
 
 @dataclass(frozen=True)
@@ -150,7 +180,7 @@ def fanout(
     link: str,
     dedupe_key: str | None = None,
     also_exclude: set[str] | None = None,
-    outbox: list[EmailMessage] | None = None,
+    outbox: Outbox | None = None,
 ) -> int:
     """Notify everyone who can see `item` about it. Returns how many were queued.
 
@@ -180,7 +210,9 @@ def fanout(
         # was first created; a skipped one was dismissed. Either way, sending
         # again would mean one bell row and N emails.
         if result.created:
-            _queue_email(outbox, r, message, link)
+            _queue_channels(
+                db, outbox, r, message, link, f"New activity from {actor.name}"
+            )
             sent += 1
     return sent
 
@@ -196,7 +228,7 @@ def notify_mentions(
     link: str,
     item_kind: str,
     item_id: str,
-    outbox: list[EmailMessage] | None = None,
+    outbox: Outbox | None = None,
 ) -> MentionResult:
     """Notify everyone @mentioned in `text` who can see `item`.
 
@@ -259,7 +291,16 @@ def notify_mentions(
             dedupe_key=f"mention:{item_kind}:{item_id}:{user.id}",
         )
         if result.created:
-            _queue_email(outbox, Recipient(user=user, member=m, prefs=prefs), message, link)
+            # A mention is directed at you by name, so saying so reveals nothing
+            # the fact of the push doesn't already.
+            _queue_channels(
+                db,
+                outbox,
+                Recipient(user=user, member=m, prefs=prefs),
+                message,
+                link,
+                f"{actor.name} mentioned you",
+            )
         notified.add(user.id)
     return MentionResult(unreachable, notified)
 
@@ -274,7 +315,7 @@ def notify_owner(
     message: str,
     link: str,
     dedupe_key: str | None = None,
-    outbox: list[EmailMessage] | None = None,
+    outbox: Outbox | None = None,
 ) -> bool:
     """Tell the item's creator that someone else touched their thing.
 
@@ -300,5 +341,7 @@ def notify_owner(
         dedupe_key=f"{dedupe_key}:{target.user.id}" if dedupe_key else None,
     )
     if result.created:
-        _queue_email(outbox, target, message, link)
+        _queue_channels(
+            db, outbox, target, message, link, f"New activity from {actor.name}"
+        )
     return result.created

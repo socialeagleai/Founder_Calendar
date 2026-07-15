@@ -220,6 +220,29 @@ class NotificationPrefsUpdate(CamelModel):
         return v
 
 
+class PushConfigOut(CamelModel):
+    """Whether push is available, and the VAPID public key to subscribe with."""
+
+    enabled: bool
+    public_key: str
+
+
+class PushSubscribeRequest(CamelModel):
+    """A browser's PushSubscription, flattened from the shape the Push API gives
+    JavaScript ({endpoint, keys: {p256dh, auth}})."""
+
+    endpoint: str = Field(min_length=1, max_length=512)
+    p256dh: str = Field(min_length=1, max_length=255)
+    auth: str = Field(min_length=1, max_length=255)
+
+
+class PushUnsubscribeRequest(CamelModel):
+    """Only the endpoint - unsubscribing needs no keys, and asking for them would
+    force the caller to invent values it doesn't have."""
+
+    endpoint: str = Field(min_length=1, max_length=512)
+
+
 class BellOut(CamelModel):
     """Everything the notification bell renders, in one response. The bell polls
     on an interval, and fetching these separately meant re-decoding the JWT and

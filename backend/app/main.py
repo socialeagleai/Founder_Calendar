@@ -18,6 +18,7 @@ from .routers import (
     notes,
     notifications,
     organization,
+    push,
     team,
     templates,
 )
@@ -247,6 +248,7 @@ app.include_router(invitations.router)
 app.include_router(leave_requests.router)
 app.include_router(notifications.router)
 app.include_router(bell.router)
+app.include_router(push.router)
 app.include_router(notes.router)
 app.include_router(boards.router)
 app.include_router(meetings.router)

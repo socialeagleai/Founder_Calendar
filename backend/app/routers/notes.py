@@ -12,7 +12,7 @@ from ..deps import (
     require_page_access,
 )
 from ..models import Note, Organization, User
-from ..notify_service import EmailMessage, fanout, notify_mentions, send_later
+from ..notify_service import Outbox, fanout, notify_mentions, send_later
 from ..schemas import NoteCreateRequest, NoteOut, NoteUpdateRequest
 
 router = APIRouter(prefix="/api/notes", tags=["notes"])
@@ -88,7 +88,7 @@ def create_note(
     # get half-saved with nobody told about it.
     db.flush()
     link = f"/calendar?date={note.date}"
-    outbox: list[EmailMessage] = []
+    outbox = Outbox()
     # Mentions first, so the fan-out can skip anyone already pinged by name -
     # otherwise being @mentioned in a note visible to everyone earns you two
     # notifications about the same note.
@@ -147,7 +147,7 @@ def update_note(
     # wholesale and we can't tell what's new. The dedupe key carries no time
     # component, so an existing mention resolves to a row that already exists
     # and nobody is pinged twice; only a newly added @handle produces anything.
-    outbox: list[EmailMessage] = []
+    outbox = Outbox()
     mentions = notify_mentions(
         db,
         org,

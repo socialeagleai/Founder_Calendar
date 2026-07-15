@@ -118,6 +118,19 @@ export interface AppNotification {
   createdAt: string;
 }
 
+/** Whether web push is configured on the server, and the key to subscribe with. */
+export interface PushConfig {
+  enabled: boolean;
+  publicKey: string;
+}
+
+/** A browser's push subscription, flattened for the API. */
+export interface PushSubscriptionKeys {
+  endpoint: string;
+  p256dh: string;
+  auth: string;
+}
+
 /** The current user's notification settings (Settings -> Preferences). */
 export interface NotificationPrefs {
   sharedWithMe: boolean;

@@ -15,7 +15,7 @@ from ..deps import (
     require_page_access,
 )
 from ..models import Meeting, Organization, User
-from ..notify_service import EmailMessage, fanout, notify_mentions, notify_owner, send_later
+from ..notify_service import Outbox, fanout, notify_mentions, notify_owner, send_later
 from ..schemas import (
     MeetingCopyRequest,
     MeetingCreateRequest,
@@ -130,7 +130,7 @@ def create_meeting(
     )
     db.add(meeting)
     db.flush()  # need the id for the link, same transaction as the fan-out
-    outbox: list[EmailMessage] = []
+    outbox = Outbox()
     # Mentions first so the fan-out can skip anyone already pinged by name.
     mentions = notify_mentions(
         db,
@@ -240,7 +240,7 @@ def update_meeting(
 
     # Content changes are activity; an audience-only change isn't (that's the
     # creator managing their own meeting, and it's how the editor saves it).
-    outbox: list[EmailMessage] = []
+    outbox = Outbox()
     if {"name", "date", "schedule", "duration", "sections"} & set(
         body.model_dump(exclude_unset=True)
     ):

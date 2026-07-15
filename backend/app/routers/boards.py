@@ -16,7 +16,7 @@ from ..deps import (
     require_page_access,
 )
 from ..models import Board, BoardBox, Organization, TeamMember, User
-from ..notify_service import EmailMessage, fanout, notify_mentions, notify_owner, send_later
+from ..notify_service import Outbox, fanout, notify_mentions, notify_owner, send_later
 from ..schemas import (
     BoardCopyRequest,
     BoardCreateRequest,
@@ -42,7 +42,7 @@ def _board_activity(
     board: Board,
     actor: User,
     verb: str,
-    outbox: list[EmailMessage] | None = None,
+    outbox: Outbox | None = None,
 ) -> None:
     """Tell the board's creator someone else touched it.
 
@@ -161,7 +161,7 @@ def create_board(
     )
     db.add(board)
     db.flush()  # need the id for the link, same transaction as the fan-out
-    outbox: list[EmailMessage] = []
+    outbox = Outbox()
     fanout(
         db,
         org,
@@ -213,7 +213,7 @@ def rename_board(
     # Only a title change is worth telling the creator about. An audience change
     # is the creator's own business, and this endpoint is also how the editor
     # saves visibility - which the creator is usually the one doing.
-    outbox: list[EmailMessage] = []
+    outbox = Outbox()
     if body.title is not None:
         _board_activity(db, org, board, user, "renamed", outbox)
     db.commit()
@@ -364,7 +364,7 @@ def add_box(
     )
     db.add(box)
     db.flush()
-    outbox: list[EmailMessage] = []
+    outbox = Outbox()
     _board_activity(db, org, board, user, "added a box to", outbox)
     notify_mentions(
         db,
@@ -409,7 +409,7 @@ def update_box(
     # The board editor persists on every drag, resize and blur, so this endpoint
     # is extremely hot. Notifying on geometry would spam the owner and run a full
     # audience fan-out per mouse-move; skipping it costs nothing anyone wants.
-    outbox: list[EmailMessage] = []
+    outbox = Outbox()
     if CONTENT_FIELDS & set(changed):
         db.flush()
         _board_activity(db, org, box.board, user, "updated", outbox)
@@ -443,7 +443,7 @@ def delete_box(
     box = _get_box(db, org, box_id)
     ensure_can_view(db, org, user, box.board, "board")
     ensure_owns_or_edit(level, box.board.user_id, user, "boards")
-    outbox: list[EmailMessage] = []
+    outbox = Outbox()
     _board_activity(db, org, box.board, user, "removed a box from", outbox)
     db.delete(box)
     db.commit()

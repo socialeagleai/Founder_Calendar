@@ -37,6 +37,19 @@ class Settings(BaseSettings):
     # environment where a background loop would be surprising.
     digest_enabled: bool = True
 
+    # Web Push (VAPID). Generate a pair with:
+    #   python -m py_vapid --gen  (or see backend/README.md)
+    # The private key belongs in the untracked /root/Founder_Calendar/.env, never
+    # in git. With these empty, push is simply off - the bell and email are
+    # unaffected. The PUBLIC key is served from /api/push/vapid-public-key rather
+    # than baked into the frontend: VITE_* vars are inlined at build time, so a
+    # backend-only env change would leave the browser with an empty key and push
+    # would silently no-op.
+    vapid_public_key: str = ""
+    vapid_private_key: str = ""
+    # "mailto:..." identifying us to the push service, per the VAPID spec.
+    vapid_subject: str = "mailto:support@socialeagle.ai"
+
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
 
     @property
