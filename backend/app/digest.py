@@ -2,13 +2,11 @@
 
 What this can honestly say is bounded by the schema, and the boundary matters:
 
-  - There is no time of day anywhere. Note.date, Board.date and Meeting.date are
-    all VARCHAR(10) "YYYY-MM-DD". So the digest lists what is *on* today; it
-    cannot say when, and it cannot sort by when.
-  - Meeting.schedule ("Weekly") is a decorative label. Nothing expands it into
-    occurrences - a meeting is one row on one date. So a "Weekly" standup created
-    once appears in exactly one digest, ever. We do NOT expand it here: inventing
-    meetings that don't exist in the database would be worse than omitting them.
+  - Notes and boards have no time of day: Note.date and Board.date are both
+    VARCHAR(10) "YYYY-MM-DD". Meetings now have Meeting.start_time, so meetings
+    (and only meetings) can be listed in the order they actually happen.
+  - Meeting.schedule is expanded through recurrence.py, so a "Weekly" standup
+    appears in every week's digest rather than exactly one, ever.
   - BoardBox.tasks is a JSON blob of {id, text, done} with no assignee, so
     "your tasks today" is not expressible. Open-task counts per board are.
 
@@ -16,7 +14,7 @@ Content is counts and titles only - never note bodies. See email.notification_em
 """
 
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import date, datetime
 
 from sqlalchemy.orm import Session, selectinload
 
@@ -25,6 +23,7 @@ from .deps import can_view_item, member_for
 from .email import esc
 from .models import Board, Meeting, Note, Organization, User
 from .prefs import Prefs
+from .recurrence import occurrence_strings
 
 
 @dataclass
@@ -32,7 +31,8 @@ class OrgDigest:
     """What's on one org's plate today, for one person."""
 
     org_name: str
-    meetings: list[tuple[str, str]] = field(default_factory=list)  # (name, duration)
+    # (name, start_time, duration) - start_time and duration may be "".
+    meetings: list[tuple[str, str, str]] = field(default_factory=list)
     note_count: int = 0
     boards: list[tuple[str, int]] = field(default_factory=list)  # (title, open tasks)
 
@@ -66,15 +66,19 @@ def build_org_digest(
     member = member_for(db, org, user)
     d = OrgDigest(org_name=org.name)
 
-    meetings = (
-        db.query(Meeting)
-        .filter(Meeting.organization_id == org.id, Meeting.date == local_date)
-        .order_by(Meeting.created_at)  # no time-of-day exists to sort by
-        .all()
-    )
-    d.meetings = [
-        (m.name, m.duration or "") for m in meetings if can_view_item(m, user, member)
+    # Every meeting in the org, then filtered to the ones that RECUR onto today.
+    # `Meeting.date == local_date` would only ever find first occurrences.
+    day = date.fromisoformat(local_date)
+    meetings = [
+        m
+        for m in db.query(Meeting).filter(Meeting.organization_id == org.id).all()
+        if occurrence_strings(m.date, m.schedule, day, day)
+        and can_view_item(m, user, member)
     ]
+    # Timed meetings first, in the order they happen; untimed ones after, since
+    # "" sorts before every real time but reads as "whenever".
+    meetings.sort(key=lambda m: (not m.start_time, m.start_time, m.created_at))
+    d.meetings = [(m.name, m.start_time or "", m.duration or "") for m in meetings]
 
     notes = (
         db.query(Note)
@@ -141,10 +145,12 @@ def render_digest(
                 f'<p style="margin:12px 0 4px"><strong>{len(d.meetings)} '
                 f"meeting{'s' if len(d.meetings) != 1 else ''}</strong></p><ul style=\"margin:4px 0;padding-left:20px\">"
             )
-            for mname, duration in d.meetings:
-                suffix = f' <span style="color:#888">- {esc(duration)}</span>' if duration else ""
+            for mname, start, duration in d.meetings:
+                # "09:30 - 60 mins", or either half alone, or neither.
+                meta = " - ".join(p for p in (start, duration) if p)
+                suffix = f' <span style="color:#888">{esc(meta)}</span>' if meta else ""
                 html_parts.append(f"<li>{esc(mname)}{suffix}</li>")
-                text_parts.append(f"  - {mname}{f' ({duration})' if duration else ''}")
+                text_parts.append(f"  - {mname}{f' ({meta})' if meta else ''}")
             html_parts.append("</ul>")
         if d.note_count:
             line = f"{d.note_count} note{'s' if d.note_count != 1 else ''}"

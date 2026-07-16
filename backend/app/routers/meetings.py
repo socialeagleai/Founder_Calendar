@@ -4,6 +4,7 @@ from typing import Literal
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
 
+from .. import attendees as attendee_service
 from ..database import get_db
 from ..deps import (
     can_view_item,
@@ -15,7 +16,16 @@ from ..deps import (
     require_page_access,
 )
 from ..models import Meeting, Organization, User
-from ..notify_service import Outbox, fanout, notify_mentions, notify_owner, send_later
+from ..notify_service import (
+    Outbox,
+    fanout,
+    notify_attendees,
+    notify_mentions,
+    notify_owner,
+    send_later,
+)
+from ..recurrence import default_window, occurrence_strings
+from ..tz import safe_zone
 from ..schemas import (
     MeetingCopyRequest,
     MeetingCreateRequest,
@@ -63,16 +73,26 @@ def _agenda_text(m: Meeting) -> str:
     return "\n".join(p for p in parts if p)
 
 
-def _summary(m: Meeting) -> MeetingSummaryOut:
+def _invite_message(actor: User, m: Meeting) -> str:
+    """The invite line. Names the meeting, the date and the time when there is
+    one - an invite that doesn't say when is just noise."""
+    when = m.date if not m.start_time else f"{m.date} at {m.start_time}"
+    return f"{actor.name} added you to {m.name} on {when}"
+
+
+def _summary(m: Meeting, occurrences: list[str] | None = None) -> MeetingSummaryOut:
     return MeetingSummaryOut(
         id=m.id,
         name=m.name,
         date=m.date,
+        start_time=m.start_time,
+        occurrences=occurrences or [],
         schedule=m.schedule,
         duration=m.duration,
         creator_name=m.creator_name,
         section_count=len(m.sections or []),
         sections=m.sections or [],
+        attendees=m.attendees or [],
         created_at=m.created_at,
         updated_at=m.updated_at,
         visibility=m.visibility,
@@ -90,17 +110,28 @@ def list_meetings(
 ) -> list[MeetingSummaryOut]:
     """List meetings. `scope=mine` (default) returns only the caller's meetings
     for the meeting list page; `scope=org` returns every member's meetings for
-    the shared calendar."""
+    the shared calendar.
+
+    Only `scope=org` carries `occurrences`. The list page shows one card per
+    meeting - a weekly standup is one thing you own, not fifty-two - whereas the
+    calendar needs every day it lands on."""
     query = db.query(Meeting).filter(Meeting.organization_id == org.id)
     if scope == "mine":
         query = query.filter(Meeting.user_id == user.id)
         meetings = query.order_by(Meeting.created_at.desc()).all()
-    else:
-        # Shared calendar feed: drop meetings the viewer isn't in the audience for.
-        meetings = query.order_by(Meeting.created_at.desc()).all()
-        member = member_for(db, org, user)
-        meetings = [m for m in meetings if can_view_item(m, user, member)]
-    return [_summary(m) for m in meetings]
+        return [_summary(m) for m in meetings]
+
+    # Shared calendar feed: drop meetings the viewer isn't in the audience for.
+    meetings = query.order_by(Meeting.created_at.desc()).all()
+    member = member_for(db, org, user)
+    meetings = [m for m in meetings if can_view_item(m, user, member)]
+    # "Today" in the org's timezone, not the server's: near midnight those are
+    # different days, and the window would silently shift by one.
+    today = datetime.now(safe_zone(org.timezone)).date()
+    start, end = default_window(today)
+    return [
+        _summary(m, occurrence_strings(m.date, m.schedule, start, end)) for m in meetings
+    ]
 
 
 @router.post(
@@ -121,17 +152,35 @@ def create_meeting(
         user_id=user.id,
         name=body.name.strip() or "Untitled meeting",
         date=body.date,
+        start_time=body.start_time,
         schedule=body.schedule,
         duration=body.duration,
         sections=[s.model_dump() for s in body.sections],
         visibility=body.visibility,
         visible_departments=list(body.visible_departments),
         visible_members=list(body.visible_members),
+        attendees=list(body.attendees),
     )
+    # Before the insert: an attendee who couldn't see this meeting is a 422, and
+    # the meeting shouldn't exist at all if the list the author sent was refused.
+    attendees = attendee_service.validated(db, org, meeting, list(body.attendees))
     db.add(meeting)
     db.flush()  # need the id for the link, same transaction as the fan-out
+
     outbox = Outbox()
-    # Mentions first so the fan-out can skip anyone already pinged by name.
+    # Strongest signal first, each excluding the last: being made an attendee
+    # outranks being named in the agenda, which outranks "this was shared with
+    # you". One save, one notification per person.
+    invited = notify_attendees(
+        db,
+        org,
+        meeting,
+        actor=user,
+        attendees=attendees,
+        message=_invite_message(user, meeting),
+        link=f"/meeting?id={meeting.id}",
+        outbox=outbox,
+    )
     mentions = notify_mentions(
         db,
         org,
@@ -142,6 +191,7 @@ def create_meeting(
         link=f"/meeting?id={meeting.id}",
         item_kind="meeting",
         item_id=meeting.id,
+        also_exclude=invited,
         outbox=outbox,
     )
     fanout(
@@ -153,7 +203,7 @@ def create_meeting(
         message=f"{user.name} scheduled {meeting.name} on {meeting.date}",
         link=f"/meeting?id={meeting.id}",
         dedupe_key=f"shared:meeting:{meeting.id}",
-        also_exclude=mentions.notified,
+        also_exclude=invited | mentions.notified,
         outbox=outbox,
     )
     db.commit()
@@ -185,12 +235,17 @@ def copy_meeting(
         user_id=user.id,
         name=name,
         date=body.date,
+        start_time=source.start_time,
         schedule=source.schedule,
         duration=source.duration,
         sections=[dict(s) for s in (source.sections or [])],
         visibility=source.visibility,
         visible_departments=list(source.visible_departments or []),
         visible_members=list(source.visible_members or []),
+        # Deliberately NOT copied. A copy is a new meeting on a new date; silently
+        # committing the same people to it - and mailing them a reminder for it -
+        # isn't something the person clicking "copy" asked for.
+        attendees=[],
     )
     db.add(clone)
     db.commit()
@@ -227,6 +282,8 @@ def update_meeting(
         meeting.name = body.name.strip() or "Untitled meeting"
     if body.date is not None:
         meeting.date = body.date
+    if body.start_time is not None:
+        meeting.start_time = body.start_time
     if body.schedule is not None:
         meeting.schedule = body.schedule
     if body.duration is not None:
@@ -237,12 +294,47 @@ def update_meeting(
         meeting.visibility = body.visibility
         meeting.visible_departments = list(body.visible_departments)
         meeting.visible_members = list(body.visible_members)
+    # Only ids being ADDED are required to still be members. The editor autosaves
+    # the whole attendee list on every keystroke-batch, so demanding that every
+    # stored id resolve would let one departed teammate 422 every future edit to
+    # the meeting - including renames - with no way to reach the stale id, since
+    # the picker only offers members who still exist.
+    added: list[str] = []
+    if body.attendees is not None:
+        before = set(meeting.attendees or [])
+        added = [i for i in body.attendees if i not in before]
+        meeting.attendees = list(body.attendees)
+
+    attendees = attendee_service.resolve(db, org, meeting.attendees or [], require=added)
+    # Re-validated whenever EITHER side moved, against the audience as it now
+    # stands: narrowing the audience out from under an existing attendee is the
+    # same incoherent state as adding an attendee who can't see the meeting, and
+    # has to fail the same way rather than leave someone invited to something
+    # they can't open.
+    if {"attendees", "visibility"} & body.model_fields_set:
+        attendee_service.ensure_can_attend(meeting, attendees)
 
     # Content changes are activity; an audience-only change isn't (that's the
     # creator managing their own meeting, and it's how the editor saves it).
     outbox = Outbox()
-    if {"name", "date", "schedule", "duration", "sections"} & set(
-        body.model_dump(exclude_unset=True)
+    # Newly-added attendees get the same invite the create path sends. The
+    # `invite:<meeting>:<user>` dedupe key is what makes this safe to call on
+    # every save: people already on the list are not re-invited.
+    invited: set[str] = set()
+    if body.attendees is not None:
+        db.flush()
+        invited = notify_attendees(
+            db,
+            org,
+            meeting,
+            actor=user,
+            attendees=attendees,
+            message=_invite_message(user, meeting),
+            link=f"/meeting?id={meeting.id}",
+            outbox=outbox,
+        )
+    if {"name", "date", "start_time", "schedule", "duration", "sections"} & (
+        body.model_fields_set
     ):
         db.flush()
         hour = datetime.now(timezone.utc).strftime("%Y-%m-%d-%H")
@@ -269,6 +361,7 @@ def update_meeting(
             link=f"/meeting?id={meeting.id}",
             item_kind="meeting",
             item_id=meeting.id,
+            also_exclude=invited,
             outbox=outbox,
         )
     db.commit()

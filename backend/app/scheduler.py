@@ -1,4 +1,4 @@
-"""The background thread that sends daily digests.
+"""The background thread that sends daily digests and meeting reminders.
 
 A plain daemon thread rather than APScheduler. The requirement is "wake up every
 so often and do some work": we compute whose local hour it is ourselves, and we
@@ -9,8 +9,14 @@ silently skip a tick and log a warning nobody reads.
 
 Safe here because the backend runs one uvicorn process with no --workers. If that
 ever changes, every replica would run this loop - the per-user dedupe key
-("digest:<local date>") is what stops that becoming duplicate emails, but it
-would still be N times the work.
+("digest:<local date>", "reminder:<meeting>:<date>:<user>") is what stops that
+becoming duplicate emails, but it would still be N times the work.
+
+One thread, two jobs at different cadences. Reminders need a tick well under
+their 30-minute lead or the tick becomes the error bar; digests only need to
+land in the right hour. So the loop runs at TICK_SECONDS and the digest runs
+every DIGEST_EVERY_TICKS-th pass. A second thread would buy nothing but a second
+session, a second failure mode, and the chance of the two overlapping.
 """
 
 import logging
@@ -19,21 +25,33 @@ from datetime import datetime, timedelta, timezone
 
 from sqlalchemy.orm import Session
 
+from . import reminders
 from .database import SessionLocal
 from .deps import orgs_for_user
 from .digest import build_org_digest, render_digest
 from .email import send_bulk
-from .models import Notification, User
+from .models import Notification, Organization, User
 from .prefs import prefs_for
+from .push import send_push
 from .routers.notifications import notify
 
 logger = logging.getLogger("uvicorn.error")
 
-TICK_SECONDS = 15 * 60
+TICK_SECONDS = 60
+# The digest is hourly-precision work; running it every minute would walk every
+# user in the database sixty times an hour to send nothing.
+DIGEST_EVERY_TICKS = 15
 # Read notifications are kept for a while so the bell isn't the only record, then
-# dropped. Mention rows are exempt: their dedupe key is what makes a mention fire
-# once and only once, and deleting the row would let a re-save ping again.
+# dropped.
 READ_RETENTION_DAYS = 30
+# ...except these, which are never pruned, because for them the ROW IS THE
+# DEDUPE and their keys carry no date to age out:
+#   mention:<kind>:<item>:<user>   - delete it and re-saving the text re-pings
+#   invite:<meeting>:<user>        - delete it and re-saving the attendee list
+#                                    re-invites everyone already on it
+# "digest:<date>" and "reminder:<meeting>:<date>:<user>" are safe to prune: both
+# name a specific past day, so a fresh row could only ever be for a new one.
+KEEP_FOREVER = ("mention", "invite")
 
 _stop = threading.Event()
 _thread: threading.Thread | None = None
@@ -99,15 +117,15 @@ def _prune_read(db: Session, now_utc: datetime) -> int:
         .filter(
             Notification.read.is_(True),
             Notification.created_at < cutoff,
-            Notification.type != "mention",
+            Notification.type.notin_(KEEP_FOREVER),
         )
         .delete(synchronize_session=False)
     )
 
 
-def run_once() -> int:
-    """One tick: send any digests that are due, prune old rows. Returns how many
-    digests were sent. Exposed separately so it can be tested without threads."""
+def run_digest() -> int:
+    """Send any digests that are due and prune old rows. Returns how many digests
+    were sent. Exposed separately so it can be tested without threads."""
     # A fresh session per tick, never one long-lived one: a long-lived session
     # pins a pooled connection for hours and serves stale identity-map data.
     db = SessionLocal()
@@ -139,22 +157,72 @@ def run_once() -> int:
         db.close()
 
 
+def run_reminders() -> int:
+    """Send reminders for every meeting starting in the next reminders.LEAD_MINUTES.
+    Returns how many emails went out. Exposed separately for testing."""
+    db = SessionLocal()
+    try:
+        now_utc = datetime.now(timezone.utc)
+        emails: list[tuple] = []
+        pushes: list = []
+        for org in db.query(Organization).all():
+            try:
+                outbox = reminders.build(db, org, now_utc)
+                # Commit per org, and BEFORE queuing that org's mail. Both halves
+                # matter:
+                #   - before: the bell rows ARE the dedupe, so if this dies here
+                #     the worst case is a reminder nobody got, not one everybody
+                #     gets again on every tick for the next half hour.
+                #   - per org: rollback() discards the whole session, so a single
+                #     failing org would otherwise wipe out the dedupe rows of
+                #     every org already processed - whose emails are in the list
+                #     and would still go out, unclaimed, and then go out again a
+                #     minute later. Committing here bounds a failure to its org.
+                db.commit()
+                emails.extend(outbox.emails)
+                pushes.extend(outbox.pushes)
+            except Exception:  # noqa: BLE001
+                # One org's bad data must not stop every other org's reminders.
+                logger.exception("Reminders failed for org %s", org.id)
+                db.rollback()
+        if emails:
+            sent = send_bulk(emails)
+            logger.info("Reminders: sent %d/%d", sent, len(emails))
+        if pushes:
+            send_push(pushes)
+        return len(emails)
+    except Exception:  # noqa: BLE001
+        logger.exception("Reminder tick failed")
+        db.rollback()
+        return 0
+    finally:
+        db.close()
+
+
 def _loop() -> None:
     # Wait first: startup is the worst moment to do work, and a container that
     # crash-loops shouldn't re-run this on every boot.
+    tick = 0
     while not _stop.wait(TICK_SECONDS):
-        run_once()
+        tick += 1
+        run_reminders()
+        if tick % DIGEST_EVERY_TICKS == 0:
+            run_digest()
 
 
 def start() -> None:
-    """Start the digest thread. Idempotent."""
+    """Start the background thread. Idempotent."""
     global _thread
     if _thread is not None and _thread.is_alive():
         return
     _stop.clear()
-    _thread = threading.Thread(target=_loop, name="digest", daemon=True)
+    _thread = threading.Thread(target=_loop, name="scheduler", daemon=True)
     _thread.start()
-    logger.info("Digest scheduler started (tick %ds)", TICK_SECONDS)
+    logger.info(
+        "Scheduler started (reminders every %ds, digest every %ds)",
+        TICK_SECONDS,
+        TICK_SECONDS * DIGEST_EVERY_TICKS,
+    )
 
 
 def stop() -> None:

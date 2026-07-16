@@ -110,6 +110,9 @@ def update_organization(
 ) -> Organization:
     org.name = body.name
     org.description = body.description
+    # Only when sent: a client PATCHing just the name must not reset the zone.
+    if body.timezone is not None:
+        org.timezone = body.timezone
     db.commit()
     db.refresh(org)
     return org

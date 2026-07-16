@@ -62,9 +62,10 @@ function DashboardPage() {
     return m;
   }, [calendarBoards]);
 
+  // Every DAY a meeting lands on, not just its first - see calendar.tsx.
   const meetingCounts = useMemo(() => {
     const m: Record<string, number> = {};
-    for (const mt of calendarMeetings) if (mt.date) m[mt.date] = (m[mt.date] ?? 0) + 1;
+    for (const mt of calendarMeetings) for (const day of mt.occurrences) m[day] = (m[day] ?? 0) + 1;
     return m;
   }, [calendarMeetings]);
 
@@ -246,7 +247,10 @@ function DashboardPage() {
                       <div className="mt-0.5 flex flex-wrap items-center gap-x-1.5 text-[11px] text-muted-foreground">
                         {m.date && (
                           <>
-                            <span>{format(parseISO(m.date), "d MMM yyyy")}</span>
+                            <span>
+                              {format(parseISO(m.date), "d MMM yyyy")}
+                              {m.startTime && ` ${m.startTime}`}
+                            </span>
                             <span aria-hidden>·</span>
                           </>
                         )}

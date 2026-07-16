@@ -7,6 +7,7 @@ import {
   useStore,
   usePageAccess,
   audienceOf,
+  occursOn,
   unreachableMentionWarning,
   EVERYONE_AUDIENCE,
   type Audience,
@@ -51,7 +52,9 @@ export function NotesDrawer({ date, onClose }: Props) {
   const canAddMeetings = meetingAccess !== "none";
   const dateKey = date ? format(date, "yyyy-MM-dd") : "";
   const dayNotes = notes.filter((n) => n.date === dateKey);
-  const dayMeetings = canViewMeetings ? calendarMeetings.filter((m) => m.date === dateKey) : [];
+  // occursOn, not `m.date === dateKey`: a recurring meeting is on this day even
+  // when this isn't the day it was first scheduled for.
+  const dayMeetings = canViewMeetings ? calendarMeetings.filter((m) => occursOn(m, dateKey)) : [];
   const dayBoards = canViewBoards ? calendarBoards.filter((b) => b.date === dateKey) : [];
 
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -92,7 +95,11 @@ export function NotesDrawer({ date, onClose }: Props) {
       const m = await createMeeting({
         name: "Untitled meeting",
         date: dateKey,
-        schedule: "Weekly",
+        // "Once", not "Weekly": this is "add a meeting to THIS day" from the
+        // calendar. Now that Schedule actually recurs, defaulting to Weekly
+        // would silently scatter a one-off across every following week. The
+        // editor can still make it repeat.
+        schedule: "Once",
         duration: "",
         sections: [],
       });
@@ -315,6 +322,7 @@ export function NotesDrawer({ date, onClose }: Props) {
                             <div className="min-w-0 flex-1">
                               <p className="truncate text-sm font-semibold">{m.name}</p>
                               <p className="mt-0.5 text-[11px] text-muted-foreground">
+                                {m.startTime ? `${m.startTime} · ` : ""}
                                 {m.schedule}
                                 {m.duration ? ` · ${m.duration}` : ""}
                               </p>

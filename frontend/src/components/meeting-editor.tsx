@@ -1,5 +1,15 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { ArrowLeft, ChevronLeft, ChevronRight, Eye, Pencil, Plus, Trash2, X } from "lucide-react";
+import {
+  ArrowLeft,
+  ChevronLeft,
+  ChevronRight,
+  Eye,
+  Pencil,
+  Plus,
+  Trash2,
+  UserRound,
+  X,
+} from "lucide-react";
 import { toast } from "sonner";
 
 import { api } from "@/lib/api";
@@ -8,6 +18,7 @@ import {
   usePageAccess,
   audienceOf,
   EVERYONE_AUDIENCE,
+  SCHEDULES,
   type Audience,
   type MeetingDetail,
   type MeetingSection,
@@ -15,6 +26,7 @@ import {
   type SectionType,
 } from "@/lib/store";
 import { AudiencePicker, isAudienceComplete } from "@/components/audience-picker";
+import { AttendeePicker, attendeeNames } from "@/components/attendee-picker";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -29,7 +41,6 @@ import { cn } from "@/lib/utils";
 
 type Mode = "view" | "editor";
 
-const SCHEDULES: Schedule[] = ["Daily", "Weekly", "Biweekly", "Monthly", "Yearly"];
 const SECTION_TYPES: { value: SectionType; label: string }[] = [
   { value: "text", label: "Text" },
   { value: "bulleted", label: "Bulleted" },
@@ -78,14 +89,19 @@ export function MeetingEditor({
 }) {
   const [meeting, setMeeting] = useState<MeetingDetail | null>(null);
   const [name, setName] = useState("");
+  const [startTime, setStartTime] = useState("");
   const [schedule, setSchedule] = useState<Schedule>("Weekly");
   const [duration, setDuration] = useState("");
   const [sections, setSections] = useState<MeetingSection[]>([]);
+  const [attendees, setAttendees] = useState<string[]>([]);
   // The list item to focus next (the one just created by pressing Enter).
   const [focusId, setFocusId] = useState<string | null>(null);
   const itemRefs = useRef<Record<string, HTMLInputElement | null>>({});
   const [audience, setAudience] = useState<Audience>(EVERYONE_AUDIENCE);
   const [loading, setLoading] = useState(true);
+  // Start times are org-local, so name the zone rather than let people guess.
+  const orgTimezone = useStore((s) => s.organization?.timezone ?? "");
+  const team = useStore((s) => s.team);
   // "edit" access can change anyone's meeting; "view" can only edit their own.
   const level = usePageAccess("meeting");
   const canEdit = level === "edit" || meeting?.mine === true;
@@ -97,16 +113,23 @@ export function MeetingEditor({
   const onBackRef = useRef(onBack);
   onBackRef.current = onBack;
 
-  // Latest values for the debounced save.
-  const latest = useRef({ name, schedule, duration, sections });
-  latest.current = { name, schedule, duration, sections };
+  // Latest values for the debounced save. Every editable field must be listed
+  // here - one that isn't is simply never sent, silently, with no type error.
+  const latest = useRef({ name, startTime, schedule, duration, sections, attendees });
+  latest.current = { name, startTime, schedule, duration, sections, attendees };
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const save = useCallback(() => {
     api
       .updateMeeting(meetingId, latest.current)
       .then(() => useStore.getState().refreshMeetings())
-      .catch(() => toast.error("Could not save changes"));
+      .catch((err) =>
+        // Show the server's message, not a generic one: the refusal that
+        // actually happens here is "Priya can't see this meeting", which names
+        // the person and the fix. Swallowing it would leave an autosave that
+        // just quietly stops working.
+        toast.error(err instanceof Error ? err.message : "Could not save changes"),
+      );
   }, [meetingId]);
 
   const scheduleSave = useCallback(() => {
@@ -123,9 +146,11 @@ export function MeetingEditor({
         if (!active) return;
         setMeeting(m);
         setName(m.name);
+        setStartTime(m.startTime);
         setSchedule(m.schedule);
         setDuration(m.duration);
         setSections(m.sections);
+        setAttendees(m.attendees ?? []);
         setAudience(audienceOf(m));
       })
       .catch(() => {
@@ -306,6 +331,25 @@ export function MeetingEditor({
           </Select>
         )}
         <div className="flex items-center gap-2 text-sm text-muted-foreground">
+          <span className="font-medium">Starts</span>
+          {readOnly ? (
+            <span>{startTime ? `${startTime} ${orgTimezone}` : "No time set"}</span>
+          ) : (
+            <Input
+              type="time"
+              value={startTime}
+              onChange={(e) => {
+                setStartTime(e.target.value);
+                scheduleSave();
+              }}
+              className="h-9 w-[130px]"
+              title={
+                orgTimezone ? `${orgTimezone} - reminders go out 30 minutes before` : undefined
+              }
+            />
+          )}
+        </div>
+        <div className="flex items-center gap-2 text-sm text-muted-foreground">
           <span className="font-medium">Duration</span>
           {readOnly ? (
             <span>{duration || "-"}</span>
@@ -321,12 +365,30 @@ export function MeetingEditor({
             />
           )}
         </div>
-        {/* Audience - the picker is shown only to editors; the chosen audience
-            isn't displayed back to viewers. */}
+        {/* Attendees + audience - pickers are shown only to editors. Attendees
+            are who gets the invite and the reminder; the audience is who can
+            open the meeting at all. Naming an attendee never widens the
+            audience (the save 422s instead) - see backend/app/attendees.py. */}
+        {!readOnly && canEdit && (
+          <AttendeePicker
+            value={attendees}
+            onChange={(next) => {
+              setAttendees(next);
+              scheduleSave();
+            }}
+            align="end"
+          />
+        )}
         {!readOnly && canEdit && (
           <AudiencePicker value={audience} onChange={changeAudience} align="end" />
         )}
       </div>
+      {readOnly && attendees.length > 0 && (
+        <div className="mb-6 flex items-center gap-2 text-sm text-muted-foreground">
+          <UserRound className="h-3.5 w-3.5" />
+          <span>{attendeeNames(attendees, team)}</span>
+        </div>
+      )}
 
       {/* Sections */}
       <div className="space-y-4">

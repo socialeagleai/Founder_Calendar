@@ -16,6 +16,23 @@ Role = Literal["Owner", "Admin", "Member"]
 MemberStatus = Literal["Active", "Invited", "LeaveRequested"]
 
 
+def _check_timezone(v: str) -> str:
+    """Reject an unusable IANA zone at the API boundary rather than storing it.
+
+    Background threads resolve these on a tick - the digest walks every user's
+    zone, the reminder loop every org's - so one unparseable value would raise
+    where nobody would ever see it.
+
+    Tested by actually constructing the zone rather than checking membership of
+    available_timezones(): that set is empty when tzdata is missing, which would
+    reject every timezone on earth instead of just the bad ones."""
+    try:
+        ZoneInfo(v)
+    except (ZoneInfoNotFoundError, ValueError, KeyError) as exc:
+        raise ValueError("Unknown timezone") from exc
+    return v
+
+
 class CamelModel(BaseModel):
     """Base model that serialises to camelCase to match the frontend TS types."""
 
@@ -119,12 +136,21 @@ class OrgCreateRequest(BaseModel):
 class OrgUpdateRequest(BaseModel):
     name: str = Field(min_length=1)
     description: str = ""
+    # Optional so an older client PATCHing name/description can't silently reset
+    # the org's timezone to a default.
+    timezone: str | None = None
+
+    @field_validator("timezone")
+    @classmethod
+    def _known_timezone(cls, v: str | None) -> str | None:
+        return v if v is None else _check_timezone(v)
 
 
 class OrganizationOut(CamelModel):
     id: str
     name: str
     description: str
+    timezone: str
     created_at: datetime
     owner_id: str
 
@@ -183,6 +209,8 @@ class NotificationPrefsOut(CamelModel):
     activity: bool
     mentions: bool
     daily_agenda: bool
+    meeting_invites: bool
+    meeting_reminders: bool
     email_enabled: bool
     push_enabled: bool
     digest_hour: int
@@ -196,6 +224,8 @@ class NotificationPrefsUpdate(CamelModel):
     activity: bool | None = None
     mentions: bool | None = None
     daily_agenda: bool | None = None
+    meeting_invites: bool | None = None
+    meeting_reminders: bool | None = None
     email_enabled: bool | None = None
     push_enabled: bool | None = None
     digest_hour: int | None = Field(default=None, ge=0, le=23)
@@ -204,20 +234,7 @@ class NotificationPrefsUpdate(CamelModel):
     @field_validator("timezone")
     @classmethod
     def _known_timezone(cls, v: str | None) -> str | None:
-        # Rejected at the boundary rather than stored: the digest scheduler walks
-        # every user's timezone on a tick, and one unparseable value would raise
-        # in a background thread where nobody sees it.
-        #
-        # Tested by actually constructing the zone rather than checking membership
-        # of available_timezones() - that set is empty when tzdata is missing,
-        # which would reject every timezone on earth instead of just bad ones.
-        if v is None:
-            return v
-        try:
-            ZoneInfo(v)
-        except (ZoneInfoNotFoundError, ValueError, KeyError) as exc:
-            raise ValueError("Unknown timezone") from exc
-        return v
+        return v if v is None else _check_timezone(v)
 
 
 class PushConfigOut(CamelModel):
@@ -417,8 +434,18 @@ class BoardCopyRequest(BaseModel):
 
 
 # ---------- Meetings ----------
-Schedule = Literal["Daily", "Weekly", "Biweekly", "Monthly", "Yearly"]
+# "Once" is last so it reads as the exception: everything else repeats from
+# Meeting.date forever (see recurrence.py).
+Schedule = Literal["Daily", "Weekly", "Biweekly", "Monthly", "Yearly", "Once"]
 SectionType = Literal["text", "bulleted", "numbered"]
+
+# "HH:MM" 24-hour, or "" for a meeting with no set time. Interpreted in the
+# ORG's timezone (Organization.timezone), never the viewer's.
+START_TIME_PATTERN = r"^$|^([01]\d|2[0-3]):[0-5]\d$"
+
+# A meeting is a room full of people, not a mailing list. Bounds the invite and
+# reminder fan-out for one meeting.
+MAX_ATTENDEES = 50
 
 
 class MeetingItemModel(CamelModel):
@@ -438,17 +465,22 @@ class MeetingSectionModel(CamelModel):
 class MeetingCreateRequest(AudienceRequest):
     name: str = Field(min_length=1)
     date: str = Field(pattern=r"^\d{4}-\d{2}-\d{2}$")
+    start_time: str = Field(default="", pattern=START_TIME_PATTERN)
     schedule: Schedule = "Weekly"
     duration: str = ""
     sections: list[MeetingSectionModel] = []
+    # TeamMember ids. Capped so one request can't fan out unboundedly.
+    attendees: list[str] = Field(default=[], max_length=MAX_ATTENDEES)
 
 
 class MeetingUpdateRequest(AudienceRequest):
     name: str | None = Field(default=None, min_length=1)
     date: str | None = Field(default=None, pattern=r"^\d{4}-\d{2}-\d{2}$")
+    start_time: str | None = Field(default=None, pattern=START_TIME_PATTERN)
     schedule: Schedule | None = None
     duration: str | None = None
     sections: list[MeetingSectionModel] | None = None
+    attendees: list[str] | None = Field(default=None, max_length=MAX_ATTENDEES)
 
 
 class MeetingCopyRequest(BaseModel):
@@ -460,11 +492,17 @@ class MeetingSummaryOut(AudienceOut):
     id: str
     name: str
     date: str
+    start_time: str
     schedule: Schedule
     duration: str
     creator_name: str | None = None
     section_count: int
     sections: list[MeetingSectionModel]
+    attendees: list[str] = []
+    # Every date this meeting falls on inside the feed's window, expanded from
+    # (date, schedule). `date` is only the FIRST one. Empty on the "mine" scope,
+    # which lists meeting definitions rather than calendar days.
+    occurrences: list[str] = []
     created_at: datetime
     updated_at: datetime
 
@@ -473,10 +511,12 @@ class MeetingDetailOut(AudienceOut):
     id: str
     name: str
     date: str
+    start_time: str
     schedule: Schedule
     duration: str
     mine: bool = False  # created by the current user
     sections: list[MeetingSectionModel]
+    attendees: list[str] = []
     created_at: datetime
     updated_at: datetime
 

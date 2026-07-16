@@ -57,10 +57,38 @@ def _run_lightweight_migrations() -> None:
     inspector = inspect(engine)
     if "meetings" in inspector.get_table_names():
         cols = {c["name"] for c in inspector.get_columns("meetings")}
-        if "date" not in cols:
-            with engine.begin() as conn:
+        with engine.begin() as conn:
+            if "date" not in cols:
                 conn.execute(
                     text("ALTER TABLE meetings ADD COLUMN date VARCHAR(10) NOT NULL DEFAULT ''")
+                )
+            # Existing meetings get no start time, which is deliberate: it means
+            # they recur on the calendar (their Schedule label finally works) but
+            # never send a reminder, so turning recurrence on can't retroactively
+            # mail everyone about a year of past standups.
+            if "start_time" not in cols:
+                conn.execute(
+                    text(
+                        "ALTER TABLE meetings ADD COLUMN start_time "
+                        "VARCHAR(5) NOT NULL DEFAULT ''"
+                    )
+                )
+            if "attendees" not in cols:
+                conn.execute(
+                    text(
+                        "ALTER TABLE meetings ADD COLUMN attendees "
+                        "JSON NOT NULL DEFAULT '[]'"
+                    )
+                )
+    if "organizations" in inspector.get_table_names():
+        cols = {c["name"] for c in inspector.get_columns("organizations")}
+        if "timezone" not in cols:
+            with engine.begin() as conn:
+                conn.execute(
+                    text(
+                        "ALTER TABLE organizations ADD COLUMN timezone "
+                        "VARCHAR(64) NOT NULL DEFAULT 'Asia/Kolkata'"
+                    )
                 )
     if "team_members" in inspector.get_table_names():
         cols = {c["name"] for c in inspector.get_columns("team_members")}
@@ -172,6 +200,21 @@ def _run_lightweight_migrations() -> None:
                     "ON notifications (user_id, dedupe_key)"
                 )
             )
+
+    # Meeting invite/reminder switches. Existing rows default to on, matching
+    # prefs.Prefs - a saved row must not mean "opted out of settings that didn't
+    # exist when I saved it".
+    if "notification_preferences" in inspector.get_table_names():
+        cols = {c["name"] for c in inspector.get_columns("notification_preferences")}
+        with engine.begin() as conn:
+            for col in ("meeting_invites", "meeting_reminders"):
+                if col not in cols:
+                    conn.execute(
+                        text(
+                            f"ALTER TABLE notification_preferences ADD COLUMN {col} "
+                            "BOOLEAN NOT NULL DEFAULT TRUE"
+                        )
+                    )
 
     # @handles for mentions. Existing members get one derived from their name.
     # Order matters: every row defaults to '' and the index is unique per org, so

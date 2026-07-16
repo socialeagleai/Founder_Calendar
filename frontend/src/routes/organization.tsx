@@ -5,6 +5,14 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { useTimezones } from "@/lib/timezones";
 import { cn } from "@/lib/utils";
 import { format, parseISO } from "date-fns";
 import { Building2, Calendar, Users, Trash2, Check, Plus, LogOut } from "lucide-react";
@@ -43,7 +51,9 @@ function OrgPage() {
   const isOwner = useStore((s) => s.access?.isOwner ?? true);
   const [name, setName] = useState(organization?.name ?? "");
   const [desc, setDesc] = useState(organization?.description ?? "");
+  const [tz, setTz] = useState(organization?.timezone ?? "");
   const [leaveRequested, setLeaveRequested] = useState(false);
+  const zoneOptions = useTimezones(tz);
 
   // Whether this member already has a pending leave request in this org.
   const myMembership = team.find((m) => m.email === currentUser?.email);
@@ -64,6 +74,7 @@ function OrgPage() {
     if (organization) {
       setName(organization.name);
       setDesc(organization.description);
+      setTz(organization.timezone);
     }
   }, [organization]);
 
@@ -72,7 +83,7 @@ function OrgPage() {
   const save = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
-      await updateOrg(name.trim(), desc.trim());
+      await updateOrg(name.trim(), desc.trim(), tz || undefined);
       toast.success("Organization updated");
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Update failed");
@@ -122,6 +133,28 @@ function OrgPage() {
                   readOnly={!canEdit}
                   onChange={(e) => setDesc(e.target.value)}
                 />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="orgtz">Timezone</Label>
+                {canEdit ? (
+                  <Select value={tz} onValueChange={setTz}>
+                    <SelectTrigger id="orgtz">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent className="max-h-72">
+                      {zoneOptions.map((z) => (
+                        <SelectItem key={z} value={z}>
+                          {z}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                ) : (
+                  <Input id="orgtz" value={tz} readOnly />
+                )}
+                <p className="text-xs text-muted-foreground">
+                  Meeting times are set and reminded in this timezone, for everyone.
+                </p>
               </div>
               {canEdit && (
                 <div className="flex justify-end gap-2">

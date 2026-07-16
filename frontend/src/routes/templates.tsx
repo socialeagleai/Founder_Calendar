@@ -11,6 +11,7 @@ import { BoardTemplateEditor } from "@/components/board-template-editor";
 import {
   useStore,
   usePageAccess,
+  SCHEDULES,
   type MeetingSection,
   type MeetingTemplateData,
   type Schedule,
@@ -57,8 +58,6 @@ export const Route = createFileRoute("/templates")({
   component: TemplatesPage,
 });
 
-const SCHEDULES: Schedule[] = ["Daily", "Weekly", "Biweekly", "Monthly", "Yearly"];
-
 const iconBtn =
   "rounded-md p-1.5 text-muted-foreground opacity-0 transition-opacity hover:bg-accent hover:text-primary group-hover:opacity-100";
 
@@ -81,6 +80,7 @@ function MeetingTemplateDialog({
       return {
         name: initial.name,
         schedule: initial.data.schedule ?? "Weekly",
+        startTime: initial.data.startTime ?? "",
         duration: initial.data.duration ?? "",
         sections: initial.data.sections ?? [],
       };
@@ -88,6 +88,7 @@ function MeetingTemplateDialog({
     return {
       name: "",
       schedule: "Weekly" as Schedule,
+      startTime: "",
       duration: "",
       sections: [] as MeetingSection[],
     };
@@ -95,6 +96,7 @@ function MeetingTemplateDialog({
 
   const [name, setName] = useState("");
   const [schedule, setSchedule] = useState<Schedule>("Weekly");
+  const [startTime, setStartTime] = useState("");
   const [duration, setDuration] = useState("");
   const [sections, setSections] = useState<MeetingSection[]>([]);
   const [saving, setSaving] = useState(false);
@@ -104,6 +106,7 @@ function MeetingTemplateDialog({
     const s = seed();
     setName(s.name);
     setSchedule(s.schedule);
+    setStartTime(s.startTime);
     setDuration(s.duration);
     setSections(s.sections);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -113,7 +116,12 @@ function MeetingTemplateDialog({
     e.preventDefault();
     setSaving(true);
     try {
-      await onSave(name.trim() || "Untitled meeting template", { schedule, duration, sections });
+      await onSave(name.trim() || "Untitled meeting template", {
+        schedule,
+        startTime,
+        duration,
+        sections,
+      });
       onOpenChange(false);
     } finally {
       setSaving(false);
@@ -140,7 +148,7 @@ function MeetingTemplateDialog({
               placeholder="e.g. Leadership Meeting"
             />
           </div>
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-3 gap-3">
             <div className="space-y-2">
               <Label>Schedule</Label>
               <Select value={schedule} onValueChange={(v) => setSchedule(v as Schedule)}>
@@ -155,6 +163,15 @@ function MeetingTemplateDialog({
                   ))}
                 </SelectContent>
               </Select>
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="mtstart">Start time</Label>
+              <Input
+                id="mtstart"
+                type="time"
+                value={startTime}
+                onChange={(e) => setStartTime(e.target.value)}
+              />
             </div>
             <div className="space-y-2">
               <Label htmlFor="mtdur">Duration</Label>

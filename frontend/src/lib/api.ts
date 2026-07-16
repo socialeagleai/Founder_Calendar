@@ -176,8 +176,13 @@ export const api = {
   leaveOrganization: () =>
     request<{ detail: string }>("/api/organization/leave", { method: "POST" }),
 
-  updateOrg: (name: string, description: string) =>
-    request<Organization>("/api/organization", { method: "PATCH", body: { name, description } }),
+  // `timezone` is omitted rather than defaulted when not being changed - the
+  // backend only writes it when present.
+  updateOrg: (name: string, description: string, timezone?: string) =>
+    request<Organization>("/api/organization", {
+      method: "PATCH",
+      body: { name, description, ...(timezone ? { timezone } : {}) },
+    }),
 
   deleteOrg: () => request<void>("/api/organization", { method: "DELETE" }),
 

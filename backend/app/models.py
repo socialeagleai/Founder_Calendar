@@ -144,6 +144,10 @@ class NotificationPreference(Base):
     activity: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     mentions: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     daily_agenda: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    # Meetings you're an attendee of: the invite when it's created, and the
+    # reminder 30 minutes before it starts.
+    meeting_invites: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    meeting_reminders: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     # Master switches per channel. The bell is always on - it's the app itself.
     email_enabled: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     push_enabled: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
@@ -162,6 +166,13 @@ class Organization(Base):
     id: Mapped[str] = mapped_column(String(32), primary_key=True, default=_uuid)
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     description: Mapped[str] = mapped_column(Text, default="", nullable=False)
+    # The timezone meeting start times are written and read in. Org-wide rather
+    # than per-user on purpose: a meeting happens at one moment for everyone in
+    # it, so "09:00" has to mean one instant. Reading it per-viewer would fire
+    # one meeting's reminders hours apart for two people in the same room.
+    timezone: Mapped[str] = mapped_column(
+        String(64), default="Asia/Kolkata", nullable=False
+    )
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
     # Not unique - a user can own several organizations.
     owner_id: Mapped[str] = mapped_column(
@@ -366,12 +377,25 @@ class Meeting(Base):
         ForeignKey("users.id", ondelete="CASCADE"), index=True, nullable=True
     )
     name: Mapped[str] = mapped_column(String(255), default="Untitled meeting", nullable=False)
-    # The calendar date this meeting is scheduled on (YYYY-MM-DD). Empty for
-    # legacy rows created before meetings were date-based.
+    # The FIRST date this meeting happens (YYYY-MM-DD) - the anchor every later
+    # occurrence is computed from (see recurrence.py). Empty for legacy rows
+    # created before meetings were date-based; those recur nowhere.
     date: Mapped[str] = mapped_column(String(10), index=True, default="", nullable=False)
+    # Local start time "HH:MM" in the ORG's timezone. Empty means nobody set one:
+    # the meeting still shows on its dates, but it can never be reminded about,
+    # because there is no instant to count back from.
+    start_time: Mapped[str] = mapped_column(String(5), default="", nullable=False)
     schedule: Mapped[str] = mapped_column(String(20), default="Weekly", nullable=False)
+    # Free text ("60-90 mins"). Display only - nothing parses this, so it cannot
+    # be used to compute an end time.
     duration: Mapped[str] = mapped_column(String(60), default="", nullable=False)
     sections: Mapped[list] = mapped_column(JSON, default=list, nullable=False)
+    # TeamMember ids expected to attend (same id space as visible_members). These
+    # are who gets the invite and the 30-minute reminder - NOT everyone who can
+    # see the meeting. Attending and being able to read are different things, so
+    # this never widens the audience: an attendee who couldn't see the meeting is
+    # rejected at the API rather than quietly added to visible_members.
+    attendees: Mapped[list] = mapped_column(JSON, default=list, nullable=False)
     # Audience control (see Note.visibility).
     visibility: Mapped[str] = mapped_column(String(16), default="everyone", nullable=False)
     visible_departments: Mapped[list] = mapped_column(JSON, default=list, nullable=False)

@@ -11,14 +11,13 @@ writes every field from the merged result - so the column defaults on the model
 are DDL sugar, and these values are the single source of truth.
 """
 
-from dataclasses import dataclass, replace
-from datetime import timezone
+from dataclasses import dataclass, fields, replace
 from datetime import tzinfo as tzinfo_t
-from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from sqlalchemy.orm import Session
 
 from .models import NotificationPreference
+from .tz import DEFAULT_TIMEZONE, safe_zone
 
 # Categories a notification can belong to, mapped to the pref that gates it.
 # "system" (leave requests, org events) is deliberately absent: it's always on,
@@ -28,6 +27,8 @@ CATEGORY_PREF = {
     "activity": "activity",
     "mention": "mentions",
     "digest": "daily_agenda",
+    "invite": "meeting_invites",
+    "reminder": "meeting_reminders",
 }
 
 
@@ -41,12 +42,17 @@ class Prefs:
     activity: bool = False
     mentions: bool = True
     daily_agenda: bool = True
+    # Both default on: unlike the feeds above, these are about a commitment the
+    # person has been given. Missing a meeting you were put in costs more than
+    # an unwanted email.
+    meeting_invites: bool = True
+    meeting_reminders: bool = True
     # Channel master switches. The bell is always on; it *is* the app.
     email_enabled: bool = True
     push_enabled: bool = False
     # Digest send time: local hour (0-23) in the user's IANA timezone.
     digest_hour: int = 8
-    timezone: str = "Asia/Kolkata"
+    timezone: str = DEFAULT_TIMEZONE
 
     def wants(self, category: str) -> bool:
         """Whether this user wants notifications of the given category at all."""
@@ -54,39 +60,31 @@ class Prefs:
         return True if field is None else bool(getattr(self, field))
 
     def tzinfo(self) -> tzinfo_t:
-        """The user's timezone. Never raises: the digest scheduler calls this for
-        every user on a tick, in a background thread, so an unresolvable zone must
-        degrade rather than take the whole run down with it.
+        """The user's timezone, resolved without ever raising (see tz.safe_zone).
+        The digest scheduler calls this for every user on a tick."""
+        return safe_zone(self.timezone)
 
-        Falls back to the default zone, then to UTC - which needs no tzdata at all
-        and so still works if the package is somehow missing."""
-        for key in (self.timezone, Prefs.timezone):
-            try:
-                return ZoneInfo(key)
-            except (ZoneInfoNotFoundError, ValueError, KeyError):
-                continue
-        return timezone.utc
+
+# Every stored setting. The dataclass fields and the model columns are named
+# identically on purpose, so this list is the only place that has to know them
+# and adding a setting can't half-land in one direction.
+_FIELDS = tuple(f.name for f in fields(Prefs))
+
+
+def _from_row(row: NotificationPreference | None) -> Prefs:
+    """A saved row as Prefs, or the defaults when there's no row."""
+    if row is None:
+        return Prefs()
+    return Prefs(**{f: getattr(row, f) for f in _FIELDS})
 
 
 def prefs_for(db: Session, user_id: str) -> Prefs:
     """A user's settings - their saved row, or the defaults if they have none.
     Pure: never writes."""
-    row = (
+    return _from_row(
         db.query(NotificationPreference)
         .filter(NotificationPreference.user_id == user_id)
         .first()
-    )
-    if row is None:
-        return Prefs()
-    return Prefs(
-        shared_with_me=row.shared_with_me,
-        activity=row.activity,
-        mentions=row.mentions,
-        daily_agenda=row.daily_agenda,
-        email_enabled=row.email_enabled,
-        push_enabled=row.push_enabled,
-        digest_hour=row.digest_hour,
-        timezone=row.timezone,
     )
 
 
@@ -101,24 +99,7 @@ def prefs_for_many(db: Session, user_ids: list[str]) -> dict[str, Prefs]:
         .filter(NotificationPreference.user_id.in_(user_ids))
         .all()
     }
-    out: dict[str, Prefs] = {}
-    for uid in user_ids:
-        row = rows.get(uid)
-        out[uid] = (
-            Prefs()
-            if row is None
-            else Prefs(
-                shared_with_me=row.shared_with_me,
-                activity=row.activity,
-                mentions=row.mentions,
-                daily_agenda=row.daily_agenda,
-                email_enabled=row.email_enabled,
-                push_enabled=row.push_enabled,
-                digest_hour=row.digest_hour,
-                timezone=row.timezone,
-            )
-        )
-    return out
+    return {uid: _from_row(rows.get(uid)) for uid in user_ids}
 
 
 def save_prefs(db: Session, user_id: str, patch: dict) -> Prefs:
@@ -135,12 +116,6 @@ def save_prefs(db: Session, user_id: str, patch: dict) -> Prefs:
         db.add(row)
     # Write every field, not just the patched ones: on first write the row is
     # brand new and the unpatched fields must land as the defaults above.
-    row.shared_with_me = merged.shared_with_me
-    row.activity = merged.activity
-    row.mentions = merged.mentions
-    row.daily_agenda = merged.daily_agenda
-    row.email_enabled = merged.email_enabled
-    row.push_enabled = merged.push_enabled
-    row.digest_hour = merged.digest_hour
-    row.timezone = merged.timezone
+    for f in _FIELDS:
+        setattr(row, f, getattr(merged, f))
     return merged

@@ -9,11 +9,13 @@ import { AppShell } from "@/components/app-shell";
 import { MeetingEditor } from "@/components/meeting-editor";
 import { MeetingContent } from "@/components/meeting-content";
 import { AudiencePicker, isAudienceComplete } from "@/components/audience-picker";
+import { AttendeePicker } from "@/components/attendee-picker";
 import { Calendar } from "@/components/ui/calendar";
 import {
   useStore,
   usePageAccess,
   EVERYONE_AUDIENCE,
+  SCHEDULES,
   type Audience,
   type MeetingInput,
   type MeetingSummary,
@@ -64,8 +66,6 @@ export const Route = createFileRoute("/meeting")({
   component: MeetingPage,
 });
 
-const SCHEDULES: Schedule[] = ["Daily", "Weekly", "Biweekly", "Monthly", "Yearly"];
-
 const BLANK_KEY = "__blank__";
 
 function NewMeetingDialog({ onCreate }: { onCreate: (input: MeetingInput) => Promise<void> }) {
@@ -76,6 +76,8 @@ function NewMeetingDialog({ onCreate }: { onCreate: (input: MeetingInput) => Pro
     () => allTemplates.filter((t): t is Template => t.kind === "meeting"),
     [allTemplates],
   );
+  // Start times are org-local, so name the zone rather than let people guess.
+  const orgTimezone = useStore((s) => s.organization?.timezone ?? "");
 
   const [open, setOpen] = useState(false);
   // Two-step flow: pick the date first, then the meeting details.
@@ -83,7 +85,9 @@ function NewMeetingDialog({ onCreate }: { onCreate: (input: MeetingInput) => Pro
   const [date, setDate] = useState<Date | undefined>(undefined);
   const [tpl, setTpl] = useState<string>(BLANK_KEY);
   const [name, setName] = useState("");
+  const [startTime, setStartTime] = useState("");
   const [schedule, setSchedule] = useState<Schedule>("Weekly");
+  const [attendees, setAttendees] = useState<string[]>([]);
   const [audience, setAudience] = useState<Audience>(EVERYONE_AUDIENCE);
   // The sections/duration carried by the currently picked template.
   const [picked, setPicked] = useState<MeetingTemplateData | null>(null);
@@ -94,7 +98,9 @@ function NewMeetingDialog({ onCreate }: { onCreate: (input: MeetingInput) => Pro
     setTpl(BLANK_KEY);
     setPicked(null);
     setName("");
+    setStartTime("");
     setSchedule("Weekly");
+    setAttendees([]);
     setAudience(EVERYONE_AUDIENCE);
   };
 
@@ -108,6 +114,7 @@ function NewMeetingDialog({ onCreate }: { onCreate: (input: MeetingInput) => Pro
     setTpl(BLANK_KEY);
     setPicked(null);
     setName("");
+    setStartTime("");
     setSchedule("Weekly");
   };
 
@@ -116,6 +123,7 @@ function NewMeetingDialog({ onCreate }: { onCreate: (input: MeetingInput) => Pro
     setTpl(t.id);
     setPicked(t.data);
     setName(t.name);
+    setStartTime(t.data.startTime ?? "");
     setSchedule(t.data.schedule);
   };
 
@@ -127,7 +135,9 @@ function NewMeetingDialog({ onCreate }: { onCreate: (input: MeetingInput) => Pro
     await onCreate({
       name: name.trim() || "Untitled meeting",
       date: format(date, "yyyy-MM-dd"),
+      startTime,
       schedule,
+      attendees,
       duration: picked?.duration ?? "",
       // Fresh ids so editing the new meeting never mutates the template.
       sections: picked ? cloneSections(picked.sections) : [],
@@ -222,25 +232,49 @@ function NewMeetingDialog({ onCreate }: { onCreate: (input: MeetingInput) => Pro
                 placeholder="e.g. Leadership Meeting"
               />
             </div>
-            <div className="space-y-2">
-              <Label>Schedule</Label>
-              <Select value={schedule} onValueChange={(v) => setSchedule(v as Schedule)}>
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {SCHEDULES.map((s) => (
-                    <SelectItem key={s} value={s}>
-                      {s}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-2">
+                <Label>Schedule</Label>
+                <Select value={schedule} onValueChange={(v) => setSchedule(v as Schedule)}>
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {SCHEDULES.map((s) => (
+                      <SelectItem key={s} value={s}>
+                        {s}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="mtime">Start time</Label>
+                <Input
+                  id="mtime"
+                  type="time"
+                  value={startTime}
+                  onChange={(e) => setStartTime(e.target.value)}
+                />
+                <p className="text-xs text-muted-foreground">
+                  {startTime
+                    ? `${orgTimezone} - reminders go out 30 minutes before`
+                    : "Optional. Without one, no reminders are sent."}
+                </p>
+              </div>
             </div>
-            <div className="space-y-2">
-              <Label>Who can see this</Label>
-              <div>
-                <AudiencePicker value={audience} onChange={setAudience} />
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-2">
+                <Label>Who can see this</Label>
+                <div>
+                  <AudiencePicker value={audience} onChange={setAudience} />
+                </div>
+              </div>
+              <div className="space-y-2">
+                <Label>Attendees</Label>
+                <div>
+                  <AttendeePicker value={attendees} onChange={setAttendees} />
+                </div>
               </div>
             </div>
             <DialogFooter>
@@ -414,6 +448,7 @@ function MeetingCard({
       {meeting.date && (
         <div className="mb-1 text-[11px] font-semibold uppercase tracking-widest text-muted-foreground">
           {format(parseISO(meeting.date), "d MMM yyyy")}
+          {meeting.startTime && ` · ${meeting.startTime}`}
         </div>
       )}
       <span className="inline-block rounded-full bg-accent px-2.5 py-0.5 text-[11px] font-semibold text-primary">

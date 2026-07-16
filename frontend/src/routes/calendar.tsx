@@ -50,9 +50,11 @@ function CalendarPage() {
     return m;
   }, [calendarBoards]);
 
+  // Count every DAY a meeting lands on, not just its first: a weekly standup
+  // marks every week. `occurrences` is expanded server-side (recurrence.py).
   const meetingCounts = useMemo(() => {
     const m: Record<string, number> = {};
-    for (const mt of calendarMeetings) if (mt.date) m[mt.date] = (m[mt.date] ?? 0) + 1;
+    for (const mt of calendarMeetings) for (const day of mt.occurrences) m[day] = (m[day] ?? 0) + 1;
     return m;
   }, [calendarMeetings]);
 

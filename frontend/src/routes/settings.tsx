@@ -15,6 +15,7 @@ import {
 import { useStore, useCurrentUser, type NotificationPrefs } from "@/lib/store";
 import { api } from "@/lib/api";
 import { disablePush, enablePush, pushPermission, pushSupported } from "@/lib/push";
+import { useTimezones } from "@/lib/timezones";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
 
@@ -133,21 +134,11 @@ function NotificationSettings() {
   const prefs = useStore((s) => s.prefs);
   const refreshPrefs = useStore((s) => s.refreshPrefs);
   const updatePrefs = useStore((s) => s.updatePrefs);
-  const [zones, setZones] = useState<string[]>([]);
+  const zoneOptions = useTimezones(prefs?.timezone ?? "");
 
   useEffect(() => {
     void refreshPrefs().catch(() => toast.error("Could not load notification settings"));
   }, [refreshPrefs]);
-
-  // Intl.supportedValuesOf isn't available during SSR (and not in every engine),
-  // so resolve the timezone list in an effect rather than during render.
-  useEffect(() => {
-    try {
-      setZones(Intl.supportedValuesOf("timeZone") as string[]);
-    } catch {
-      setZones([]);
-    }
-  }, []);
 
   const save = (patch: Partial<NotificationPrefs>) =>
     void updatePrefs(patch).catch(() => toast.error("Could not save that setting"));
@@ -159,10 +150,6 @@ function NotificationSettings() {
       </Card>
     );
   }
-
-  // If the browser reports a zone we don't have in the list, still show it as
-  // selected rather than render an empty box.
-  const zoneOptions = zones.includes(prefs.timezone) ? zones : [prefs.timezone, ...zones];
 
   return (
     <>
@@ -184,6 +171,18 @@ function NotificationSettings() {
           desc="When teammates mention your @handle on a plan."
           checked={prefs.mentions}
           onChange={(v) => save({ mentions: v })}
+        />
+        <PrefRow
+          label="Meeting invites"
+          desc="When someone adds you as an attendee of a meeting."
+          checked={prefs.meetingInvites}
+          onChange={(v) => save({ meetingInvites: v })}
+        />
+        <PrefRow
+          label="Meeting reminders"
+          desc="30 minutes before a meeting you're attending starts."
+          checked={prefs.meetingReminders}
+          onChange={(v) => save({ meetingReminders: v })}
         />
         <PrefRow
           label="Daily agenda"

@@ -52,6 +52,11 @@ export interface Organization {
   id: string;
   name: string;
   description: string;
+  /**
+   * IANA zone that meeting start times are written and read in. Org-wide, not
+   * per-user: a meeting happens at one instant for everyone in it.
+   */
+  timezone: string;
   createdAt: string;
   ownerId: string;
 }
@@ -137,6 +142,10 @@ export interface NotificationPrefs {
   activity: boolean;
   mentions: boolean;
   dailyAgenda: boolean;
+  /** Being added as an attendee of a meeting. */
+  meetingInvites: boolean;
+  /** 30 minutes before a meeting you're attending starts. */
+  meetingReminders: boolean;
   emailEnabled: boolean;
   pushEnabled: boolean;
   /** Local hour (0-23) the daily digest is sent, in `timezone`. */
@@ -208,7 +217,16 @@ export interface BoardDetail extends Audience {
   boxes: Box[];
 }
 
-export type Schedule = "Daily" | "Weekly" | "Biweekly" | "Monthly" | "Yearly";
+/**
+ * How a meeting repeats after its `date`. Anything but "Once" recurs forever;
+ * the backend expands it (see backend/app/recurrence.py) - the frontend never
+ * computes occurrence dates itself, or the two rules would drift.
+ */
+export type Schedule = "Daily" | "Weekly" | "Biweekly" | "Monthly" | "Yearly" | "Once";
+
+/** Every Schedule, in menu order. Mirrors `Schedule` in backend/app/schemas.py. */
+export const SCHEDULES: Schedule[] = ["Once", "Daily", "Weekly", "Biweekly", "Monthly", "Yearly"];
+
 export type SectionType = "text" | "bulleted" | "numbered";
 
 export interface MeetingItem {
@@ -228,24 +246,49 @@ export interface MeetingSection {
 export interface MeetingSummary extends Audience {
   id: string;
   name: string;
-  date: string; // YYYY-MM-DD
+  date: string; // YYYY-MM-DD - the first occurrence
+  startTime: string; // "HH:MM" in the org's timezone, or "" if none was set
   schedule: Schedule;
   duration: string;
   creatorName?: string | null; // who created it (shown on the calendar)
   sectionCount: number;
   sections: MeetingSection[];
+  /** TeamMember ids expected to attend - who gets the invite and the reminder. */
+  attendees: string[];
+  /**
+   * Every date this meeting falls on inside the feed's window, expanded from
+   * (date, schedule) by the backend. Empty on the "mine" scope, which lists
+   * meeting definitions rather than calendar days. Read it via `occursOn`.
+   */
+  occurrences: string[];
   createdAt: string;
   updatedAt: string;
+}
+
+/**
+ * Whether a meeting lands on `date` (YYYY-MM-DD).
+ *
+ * Use this rather than `m.date === date` anywhere the calendar is concerned:
+ * `date` is only the FIRST occurrence, so comparing against it shows a weekly
+ * standup on exactly one day and hides it on the other fifty-one. Only defined
+ * for the org-scope feed (`calendarMeetings`); the "mine" list has no
+ * occurrences because it shows one card per meeting, not per day.
+ */
+export function occursOn(m: MeetingSummary, date: string): boolean {
+  return m.occurrences.includes(date);
 }
 
 export interface MeetingDetail extends Audience {
   id: string;
   name: string;
-  date: string; // YYYY-MM-DD
+  date: string; // YYYY-MM-DD - the first occurrence
+  startTime: string; // "HH:MM" in the org's timezone, or "" if none was set
   schedule: Schedule;
   duration: string;
   mine?: boolean; // created by the current user
   sections: MeetingSection[];
+  /** TeamMember ids expected to attend - who gets the invite and the reminder. */
+  attendees: string[];
   createdAt: string;
   updatedAt: string;
 }
@@ -253,9 +296,12 @@ export interface MeetingDetail extends Audience {
 export interface MeetingInput {
   name: string;
   date: string; // YYYY-MM-DD
+  startTime?: string; // "HH:MM" in the org's timezone
   schedule: Schedule;
   duration?: string;
   sections?: MeetingSection[];
+  /** TeamMember ids. Must all be able to see the meeting, or the save 422s. */
+  attendees?: string[];
   // Audience. Optional on input; the backend defaults to "everyone".
   visibility?: Visibility;
   visibleDepartments?: string[];
@@ -271,6 +317,8 @@ export interface BoardTemplateData {
 
 export interface MeetingTemplateData {
   schedule: Schedule;
+  // Optional: templates saved before start times existed have none.
+  startTime?: string;
   duration: string;
   sections: MeetingSection[];
 }
@@ -361,7 +409,7 @@ interface AppState {
 
   // Organization
   createOrg: (name: string, description: string) => Promise<void>;
-  updateOrg: (name: string, description: string) => Promise<void>;
+  updateOrg: (name: string, description: string, timezone?: string) => Promise<void>;
   deleteOrg: () => Promise<void>;
   switchOrg: (id: string) => Promise<void>;
   leaveOrg: () => Promise<void>;
@@ -763,8 +811,8 @@ export const useStore = create<AppState>((set, get) => ({
     await get().refreshOrgData();
   },
 
-  updateOrg: async (name, description) => {
-    const org = await api.updateOrg(name, description);
+  updateOrg: async (name, description, timezone) => {
+    const org = await api.updateOrg(name, description, timezone);
     set((s) => ({
       organization: org,
       myOrgs: s.myOrgs.map((o) =>

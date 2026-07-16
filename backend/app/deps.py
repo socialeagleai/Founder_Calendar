@@ -104,7 +104,7 @@ def member_for(db: Session, org: Organization, user: User) -> TeamMember | None:
     return _member_of(db, org, user)
 
 
-def can_view_item(item, user: User, member: TeamMember | None) -> bool:
+def can_view_item(item, user: User | None, member: TeamMember | None) -> bool:
     """Whether `user` may see a note/board/meeting given its audience settings.
     `member` is the viewer's TeamMember row in the item's org (or None). The
     creator always sees their own item; otherwise visibility decides:
@@ -112,8 +112,13 @@ def can_view_item(item, user: User, member: TeamMember | None) -> bool:
       - private:     creator only
       - departments: the viewer's department is in item.visible_departments
       - members:     the viewer's TeamMember id is in item.visible_members
-    There is no owner/admin override - "private" is absolute."""
-    if item.user_id is not None and item.user_id == user.id:
+    There is no owner/admin override - "private" is absolute.
+
+    `user` may be None for someone who was invited but never signed up: they
+    have a TeamMember row and so an audience, but no account. They can never be
+    the creator (that's a User id), so only the creator branch is skipped and
+    the audience rule stays exactly the same one everything else uses."""
+    if user is not None and item.user_id is not None and item.user_id == user.id:
         return True
     vis = getattr(item, "visibility", "everyone") or "everyone"
     if vis == "everyone":

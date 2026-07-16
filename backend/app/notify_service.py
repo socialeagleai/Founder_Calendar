@@ -62,13 +62,14 @@ def send_later(background: BackgroundTasks, outbox: Outbox) -> None:
         background.add_task(send_push, outbox.pushes)
 
 
-def _queue_channels(
+def queue_channels(
     db: Session,
     outbox: Outbox | None,
     recipient: "Recipient",
     message: str,
     link: str,
     push_body: str,
+    subject: str | None = None,
 ) -> None:
     """Queue the off-app channels this recipient has switched on.
 
@@ -76,7 +77,10 @@ def _queue_channels(
     deliberately vaguer version: a push renders unprompted on a screen that may
     be locked, in a cafe, or shared - and unlike the bell and the inbox, we can't
     assume the person in front of it is the recipient. So push says come and
-    look, and the specifics live behind the click."""
+    look, and the specifics live behind the click.
+
+    `subject` overrides the email subject when the bell text doesn't make a good
+    one (a reminder's bell row says what, the subject wants when)."""
     if outbox is None:
         return
     if recipient.prefs.email_enabled:
@@ -84,11 +88,12 @@ def _queue_channels(
             f"{settings.app_base_url.rstrip('/')}{link}" if link else settings.app_base_url
         )
         html, text = notification_email(recipient.user.name, message, url)
-        outbox.emails.append((recipient.user.email, message, html, text))
+        outbox.emails.append((recipient.user.email, subject or message, html, text))
     if recipient.prefs.push_enabled:
         outbox.pushes.extend(
             build_messages(db, recipient.user.id, "Founder Calendar", push_body, link)
         )
+
 
 
 @dataclass(frozen=True)
@@ -210,11 +215,68 @@ def fanout(
         # was first created; a skipped one was dismissed. Either way, sending
         # again would mean one bell row and N emails.
         if result.created:
-            _queue_channels(
+            queue_channels(
                 db, outbox, r, message, link, f"New activity from {actor.name}"
             )
             sent += 1
     return sent
+
+
+def notify_attendees(
+    db: Session,
+    org: Organization,
+    meeting,
+    *,
+    actor: User,
+    attendees: list,
+    message: str,
+    link: str,
+    outbox: Outbox | None = None,
+) -> set[str]:
+    """Tell each attendee they're expected at `meeting`. Returns the user ids
+    pinged, for the caller to exclude from weaker signals.
+
+    Takes the already-resolved, already-validated attendee list (attendees.py)
+    rather than re-reading ids: whether someone may be an attendee at all is an
+    access-control question that belongs at the write, not here.
+
+    Skips the actor (you know you scheduled it) and anyone with no account -
+    they're a legitimate attendee, but that address is unverified and this
+    message names the org's meeting. They'll be reminded once they sign up.
+
+    Dedupe has no time component: `invite:<meeting>:<user>` means one invite per
+    person per meeting, ever, so re-saving the attendee list never re-invites
+    the people who were already on it."""
+    notified: set[str] = set()
+    for a in attendees:
+        if a.user is None or a.user.id == actor.id:
+            continue
+        prefs = prefs_for(db, a.user.id)
+        if not prefs.wants("invite"):
+            # Muted. Still counts as handled so they don't get the generic
+            # "shared with you" fan-out as a consolation prize.
+            notified.add(a.user.id)
+            continue
+        result = notify(
+            db,
+            a.user.id,
+            message,
+            type="invite",
+            link=link,
+            organization_id=org.id,
+            dedupe_key=f"invite:{meeting.id}:{a.user.id}",
+        )
+        if result.created:
+            queue_channels(
+                db,
+                outbox,
+                Recipient(user=a.user, member=a.member, prefs=prefs),
+                message,
+                link,
+                f"{actor.name} invited you to a meeting",
+            )
+        notified.add(a.user.id)
+    return notified
 
 
 def notify_mentions(
@@ -228,6 +290,7 @@ def notify_mentions(
     link: str,
     item_kind: str,
     item_id: str,
+    also_exclude: set[str] | None = None,
     outbox: Outbox | None = None,
 ) -> MentionResult:
     """Notify everyone @mentioned in `text` who can see `item`.
@@ -245,11 +308,16 @@ def notify_mentions(
         out - saying "they can't see this" would both be false and leak their
         settings. They just don't get pinged, which is what muting means.
 
+    `also_exclude` is for people already reached by a STRONGER signal - being
+    made an attendee of a meeting outranks being named in its agenda, and one
+    save must not produce two rows about the same thing.
+
     Dedupe has no time component: `mention:note:abc:<user>` means once per item
     per person, ever, so re-saving the same text never re-pings anyone."""
     handles = extract_handles(text)
     if not handles:
         return MentionResult([], set())
+    skip = also_exclude or set()
 
     members = (
         db.query(TeamMember)
@@ -274,6 +342,11 @@ def notify_mentions(
             continue
         if user.id == actor.id:
             continue  # mentioning yourself is not an event
+        if user.id in skip:
+            # Already told by a stronger signal (e.g. they're an attendee).
+            # Marked as notified so the generic fan-out skips them too.
+            notified.add(user.id)
+            continue
         prefs = prefs_for(db, user.id)
         if not prefs.wants("mention"):
             # Muted: skip quietly, and don't report it to the author - that would
@@ -293,7 +366,7 @@ def notify_mentions(
         if result.created:
             # A mention is directed at you by name, so saying so reveals nothing
             # the fact of the push doesn't already.
-            _queue_channels(
+            queue_channels(
                 db,
                 outbox,
                 Recipient(user=user, member=m, prefs=prefs),
@@ -341,7 +414,7 @@ def notify_owner(
         dedupe_key=f"{dedupe_key}:{target.user.id}" if dedupe_key else None,
     )
     if result.created:
-        _queue_channels(
+        queue_channels(
             db, outbox, target, message, link, f"New activity from {actor.name}"
         )
     return result.created
