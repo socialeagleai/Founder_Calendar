@@ -2,7 +2,10 @@ fastapi==0.115.6
 uvicorn[standard]==0.34.0
 sqlalchemy==2.0.36
 psycopg2-binary==2.9.10
-pydantic==2.10.4
+# Bumped from 2.10.4 for the MCP SDK, which requires pydantic>=2.11. 2.11 is
+# backward-compatible with everything the API uses (CamelModel, alias_generator,
+# field/model validators, model_fields_set); verified against the full test suite.
+pydantic==2.11.7
 pydantic-settings==2.7.1
 email-validator==2.2.0
 python-jose[cryptography]==3.3.0
@@ -17,3 +20,12 @@ tzdata==2026.3
 # Web Push (VAPID + payload encryption). Blocking requests under the hood, so
 # it gets the same background-task treatment as SMTP.
 pywebpush==2.3.0
+# Remote MCP server (OAuth 2.1 authorization server + Streamable HTTP transport).
+# Runs as its own container (founder_cal_mcp) from this same image. Brings pyjwt,
+# sse-starlette, jsonschema transitively. Needs pydantic>=2.11 (see above).
+mcp==1.28.1
+# Pinned for a reproducible image. starlette must stay <0.42 (FastAPI 0.115.6's
+# ceiling); mcp allows >=0.27, so 0.41.3 satisfies both — pin it so a resolver
+# can't drift the pair apart. httpx is used directly by the MCP proxy client.
+starlette==0.41.3
+httpx==0.28.1

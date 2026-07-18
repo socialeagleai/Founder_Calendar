@@ -50,6 +50,20 @@ class Settings(BaseSettings):
     # "mailto:..." identifying us to the push service, per the VAPID spec.
     vapid_subject: str = "mailto:support@socialeagle.ai"
 
+    # ---- Remote MCP server ----
+    # Public base URL of the MCP server itself. This is the OAuth issuer and the
+    # resource identifier, so it MUST match what clients reach (scheme + host, no
+    # trailing slash), e.g. https://mcp.fc.socialeagle.ai. Metadata, /authorize
+    # and /token URLs are all built from it.
+    mcp_issuer_url: str = "http://localhost:9000"
+    # Where the MCP server reaches the REST API internally. In the compose network
+    # this is the backend service; locally it's the dev server. Tool calls proxy
+    # here with a minted internal FC JWT.
+    mcp_backend_url: str = "http://localhost:8000"
+    # Access / refresh token lifetimes for MCP clients.
+    mcp_access_token_ttl_minutes: int = 60
+    mcp_refresh_token_ttl_days: int = 30
+
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
 
     @property

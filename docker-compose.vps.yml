@@ -71,6 +71,38 @@ services:
       # access is via https://backend.fc.socialeagle.ai.
       - "127.0.0.1:8001:8000"
 
+  mcp:
+    # Remote MCP server (OAuth 2.1 + Streamable HTTP). Same image as the backend,
+    # different entrypoint. Lets any MCP client (Claude, etc.) act on a user's
+    # calendar. It reaches the API over the compose network and shares JWT_SECRET
+    # so it can mint a per-user token; it holds no SMTP/VAPID config because every
+    # write proxies to the backend, which does the email/push.
+    build: ./backend
+    container_name: founder_cal_mcp
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql+psycopg2://founder:founder_pass@db:5432/founder_calendar
+      JWT_SECRET: "${JWT_SECRET:?JWT_SECRET must be set in /root/Founder_Calendar/.env}"
+      JWT_ALGORITHM: HS256
+      ACCESS_TOKEN_EXPIRE_MINUTES: "10080"
+      # Public URL clients reach — the OAuth issuer AND resource identifier, so it
+      # must exactly match the hostname nginx serves (scheme + host, no trailing
+      # slash). Metadata, /authorize and /token URLs are derived from it.
+      MCP_ISSUER_URL: "https://mcp.fc.socialeagle.ai"
+      # How the MCP server reaches the REST API inside the compose network.
+      MCP_BACKEND_URL: "http://backend:8000"
+      MCP_ACCESS_TOKEN_TTL_MINUTES: "60"
+      MCP_REFRESH_TOKEN_TTL_DAYS: "30"
+    command: uvicorn app.mcp_main:app --host 0.0.0.0 --port 9000
+    ports:
+      # Bound to localhost — only nginx (on this host) reaches it. Public access
+      # is via https://mcp.fc.socialeagle.ai. 9002 is an idle host port, chosen
+      # to avoid colliding with the co-hosted microsaas stack.
+      - "127.0.0.1:9002:9000"
+
   frontend:
     build:
       context: ./frontend

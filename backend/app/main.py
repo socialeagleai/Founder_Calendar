@@ -257,8 +257,17 @@ def _run_lightweight_migrations() -> None:
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
-    # Create tables on startup, then apply additive column migrations.
-    Base.metadata.create_all(bind=engine)
+    # Import the MCP server's OAuth models so their tables are created here too -
+    # the API and the MCP container share one database, and either may be first
+    # to start. Import (not use) is enough to register them on Base.metadata.
+    from .mcp_server import models as _mcp_models  # noqa: F401
+
+    # Create tables on startup, then apply additive column migrations. The
+    # advisory lock serialises this against the MCP container, which may be
+    # creating the same tables at the same instant on a fresh database.
+    from .schema_init import create_all_locked
+
+    create_all_locked(engine, Base)
     _run_lightweight_migrations()
     # In-process digest thread. Safe because we run a single uvicorn worker; see
     # scheduler.py. Can be turned off with DIGEST_ENABLED=false.
