@@ -11,6 +11,7 @@ import {
   Building2,
   Users,
   Settings,
+  Sparkles,
   LogOut,
   Bell,
   Menu,
@@ -52,6 +53,7 @@ const nav = [
   { to: "/templates", label: "My Templates", icon: LayoutTemplate },
   { to: "/organization", label: "Organization", icon: Building2 },
   { to: "/team", label: "Team", icon: Users },
+  { to: "/mcp", label: "AI Connect", icon: Sparkles },
   { to: "/settings", label: "Settings", icon: Settings },
 ] as const;
 
