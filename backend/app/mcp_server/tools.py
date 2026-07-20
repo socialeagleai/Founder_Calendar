@@ -593,8 +593,8 @@ def register_tools(mcp: FastMCP) -> None:
 
         role: "Member" or "Admin" (an Owner cannot be invited or created).
         permissions: per-page access, e.g. {"calendar": "edit", "team": "view"}.
-        Levels are "none", "view" or "edit"; pages omitted fall back to the role's
-        defaults. Use list_departments for department_id."""
+        The only levels are "view" and "edit" — to deny a page, leave it out
+        rather than passing "none". Use list_departments for department_id."""
         user_id, active_org, _ = caller()
         org_id = org_for(organization_id, active_org)
         body: dict[str, Any] = {"name": name, "email": email, "role": role}
