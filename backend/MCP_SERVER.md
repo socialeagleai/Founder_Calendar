@@ -11,9 +11,15 @@ invite/reminder fan-out.
 - Transport: Streamable HTTP at `/mcp`. Auth: OAuth 2.1 (DCR, PKCE, refresh,
   revocation) via the MCP SDK, backed by three tables (`oauth_clients`,
   `oauth_grants`, `oauth_tokens`).
-- 26 tools: calendar/agenda, meetings (+attendees/recurrence/reminders), notes,
-  boards (+boxes), and read-only team/department lookups. No team/org admin
-  writes in v1.
+- 40 tools, full read+write across every page the app exposes: calendar/agenda,
+  meetings (+attendees/recurrence/reminders), notes, boards (+boxes), templates,
+  team, departments and organization settings.
+- The API enforces access control, so a tool can only do what that user could do
+  in the app: page permissions, Owner-only actions and the anti-escalation rules
+  (no promoting to Owner, no editing your own access) all still apply.
+- `delete_organization` is irreversible and destroys every member's data, so it
+  additionally requires `confirm_name` to exactly match the org's name — a guard
+  against a vague instruction being read as "delete the workspace".
 
 ## Run locally
 
