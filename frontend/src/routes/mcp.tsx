@@ -72,7 +72,8 @@ function McpPage() {
       <div className="mb-8 rounded-2xl border border-border bg-card p-6 shadow-soft">
         <h2 className="text-lg font-bold">How to connect (Claude)</h2>
         <p className="mt-1 text-sm text-muted-foreground">
-          Takes about a minute. You'll sign in with your Founder Calendar email and password.
+          Takes about a minute. You'll sign in with your Founder Calendar account — Google or email
+          and password, whichever you use here.
         </p>
 
         <motion.ol
@@ -99,10 +100,12 @@ function McpPage() {
         <div className="mt-6 flex items-start gap-3 rounded-xl border border-primary/20 bg-primary/5 p-4">
           <KeyRound className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
           <p className="text-sm leading-relaxed">
-            When the sign-in window opens, use{" "}
-            <span className="font-semibold">{user?.email ?? "your Founder Calendar email"}</span>{" "}
-            and your Founder Calendar password — the same ones you use here. The AI never sees your
-            password; it only receives a token that lets it act on your behalf.
+            When the sign-in window opens, sign in as{" "}
+            <span className="font-semibold">{user?.email ?? "your Founder Calendar account"}</span>{" "}
+            — the same way you sign in here. If you created your account with Google, use the{" "}
+            <span className="font-semibold">Sign in with Google</span> button; otherwise use your
+            email and password. The AI never sees your password or your Google account; it only
+            receives a token that lets it act on your behalf.
           </p>
         </div>
       </div>
@@ -177,7 +180,8 @@ const STEPS: { title: string; detail?: string }[] = [
   },
   {
     title: "Sign in and approve",
-    detail: "Enter your Founder Calendar email and password, then approve access.",
+    detail:
+      "Use “Sign in with Google” if that's how you created your account — otherwise enter your Founder Calendar email and password.",
   },
   {
     title: "Start asking",
