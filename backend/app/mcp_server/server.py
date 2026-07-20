@@ -49,33 +49,54 @@ _ALLOWED_HOSTS = [
     "127.0.0.1",
     "127.0.0.1:*",
 ]
+# The SDK has no wildcard for origins and no way to keep its Host check while
+# dropping its Origin check, so its combined check is switched off and the Host
+# half is reimplemented in _HostGuard below. (A str subclass with __eq__ always
+# True does NOT work here: pydantic revalidates these settings inside FastMCP()
+# and coerces the subclass back to a plain str, silently restoring the 403s.)
 _security = TransportSecuritySettings(
-    enable_dns_rebinding_protection=True,
-    allowed_hosts=_ALLOWED_HOSTS,
-    # Empty rejects any request that *sends* an Origin (absence always passes),
-    # so the library's origin check is switched off below via _AllowAnyOrigin and
-    # the Host check is preserved.
-    allowed_origins=[],
+    enable_dns_rebinding_protection=False,
 )
 
 
-class _AllowAnyOrigin(str):
-    """Makes the SDK's `origin in allowed_origins` test always succeed.
+def _host_allowed(host: str | None) -> bool:
+    if not host:
+        return False
+    if host in _ALLOWED_HOSTS:
+        return True
+    # ":*" entries permit any port on that host.
+    return any(
+        host.startswith(a[:-2] + ":") for a in _ALLOWED_HOSTS if a.endswith(":*")
+    )
 
-    The SDK offers no wildcard for origins and builds its middleware internally,
-    so there is no settings-level way to keep Host validation while dropping
-    Origin validation. Containing this in one tiny object is preferable to
-    disabling rebinding protection wholesale, which would drop the Host check too.
+
+class _HostGuard:
+    """Reject requests whose Host is not one we serve, with no Origin restriction.
+
+    Pure ASGI rather than BaseHTTPMiddleware: the latter buffers the response and
+    would break Streamable HTTP's long-lived SSE responses.
     """
 
-    def __eq__(self, other: object) -> bool:
-        return True
+    def __init__(self, app):
+        self.app = app
 
-    def __hash__(self) -> int:
-        return hash("*")
+    async def __call__(self, scope, receive, send):
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+        host = None
+        for key, value in scope.get("headers", []):
+            if key == b"host":
+                host = value.decode("latin-1")
+                break
+        if not _host_allowed(host):
+            from starlette.responses import PlainTextResponse
 
-
-_security.allowed_origins = [_AllowAnyOrigin("*")]
+            await PlainTextResponse("Invalid Host header", status_code=421)(
+                scope, receive, send
+            )
+            return
+        await self.app(scope, receive, send)
 
 mcp = FastMCP(
     name="Founder Calendar",
@@ -141,6 +162,10 @@ def build_app():
         expose_headers=["mcp-session-id", "mcp-protocol-version", "www-authenticate"],
         max_age=86400,
     )
+
+    # Added last => outermost, so a request for a host we do not serve is
+    # rejected before anything else looks at it.
+    app.add_middleware(_HostGuard)
 
     # Create the OAuth tables on startup (idempotent), not at import, so the
     # module imports without a live DB (tests). FastMCP already sets a lifespan
