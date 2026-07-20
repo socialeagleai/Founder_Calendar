@@ -10,6 +10,7 @@ fields (audience lists, section documents, timestamps) the model rarely needs,
 and trimming them saves tokens and avoids leaking incidental structure.
 """
 
+import uuid
 from datetime import datetime, timedelta
 from typing import Any
 from zoneinfo import ZoneInfo
@@ -19,6 +20,13 @@ from mcp.server.fastmcp import FastMCP
 from . import store
 from .api_client import ApiError, call
 from .context import caller, org_for
+
+
+def _new_id() -> str:
+    """Ids for agenda sections/points and checklist items are minted here, in the
+    same 12-hex-char shape the backend uses. The client must never invent them:
+    a guessed id silently overwrites or duplicates a real row."""
+    return uuid.uuid4().hex[:12]
 
 
 def _safe_zone(name: str | None):
@@ -76,6 +84,21 @@ def _board_brief(b: dict) -> dict:
         out["boxCount"] = b["boxCount"]
         out["openTasks"] = b.get("openTaskCount")
     return out
+
+
+def _section_brief(s: dict) -> dict:
+    out = {
+        "id": s.get("id"),
+        "title": s.get("title") or None,
+        "type": s.get("type"),
+        "points": [
+            {"id": i.get("id"), "text": i.get("text"), "level": i.get("level", 0)}
+            for i in (s.get("items") or [])
+        ],
+    }
+    if s.get("body"):
+        out["body"] = s["body"]
+    return {k: v for k, v in out.items() if v is not None}
 
 
 def _box_brief(x: dict) -> dict:
@@ -385,6 +408,209 @@ def register_tools(mcp: FastMCP) -> None:
         await call("DELETE", f"/api/meetings/{meeting_id}", user_id=user_id, org_id=org_id)
         return {"deleted": meeting_id}
 
+    # ================= agenda (sections + items) =================
+    # The agenda is one JSON document on the meeting, so every edit is
+    # read-modify-write on the whole `sections` list. These tools exist so a
+    # client never has to resend the document itself: sending the whole agenda to
+    # change one bullet invites clobbering a teammate's concurrent edit and
+    # invents ids that collide with real ones.
+    async def _load_sections(user_id, org_id, meeting_id) -> list[dict]:
+        m = await call(
+            "GET", f"/api/meetings/{meeting_id}", user_id=user_id, org_id=org_id
+        )
+        return list(m.get("sections") or [])
+
+    async def _save_sections(user_id, org_id, meeting_id, sections) -> dict:
+        m = await call(
+            "PATCH", f"/api/meetings/{meeting_id}", user_id=user_id, org_id=org_id,
+            json={"sections": sections},
+        )
+        return {"id": m["id"], "name": m["name"],
+                "sections": [_section_brief(s) for s in (m.get("sections") or [])]}
+
+    def _find_section(sections: list[dict], section_id: str) -> dict:
+        for s in sections:
+            if s.get("id") == section_id:
+                return s
+        raise ApiError(404, f"No agenda section {section_id} on this meeting.")
+
+    @mcp.tool()
+    async def get_agenda_document(
+        meeting_id: str, organization_id: str | None = None
+    ) -> dict:
+        """The meeting's full agenda: every section with its id, and every point
+        with its id and level. Call this to get the ids the other agenda tools
+        need."""
+        user_id, active_org, _ = caller()
+        org_id = org_for(organization_id, active_org)
+        sections = await _load_sections(user_id, org_id, meeting_id)
+        return {"meetingId": meeting_id, "sections": [_section_brief(s) for s in sections]}
+
+    @mcp.tool()
+    async def add_agenda_section(
+        meeting_id: str,
+        title: str,
+        type: str = "bulleted",
+        body: str = "",
+        items: list[str] | None = None,
+        position: int | None = None,
+        organization_id: str | None = None,
+    ) -> dict:
+        """Add a topic (section) to a meeting's agenda.
+
+        type: "bulleted" (default), "numbered", or "text". Use "text" for prose
+        and put it in `body`; the other two hold `items` (the points).
+        items: the points to start with, as plain strings.
+        position: 0-based index to insert at; omit to append at the end."""
+        user_id, active_org, _ = caller()
+        org_id = org_for(organization_id, active_org)
+        sections = await _load_sections(user_id, org_id, meeting_id)
+        section = {
+            "id": _new_id(),
+            "title": title,
+            "type": type,
+            "body": body,
+            "items": [
+                {"id": _new_id(), "text": t, "level": 0} for t in (items or [])
+            ],
+        }
+        if position is None or position >= len(sections):
+            sections.append(section)
+        else:
+            sections.insert(max(0, position), section)
+        return await _save_sections(user_id, org_id, meeting_id, sections)
+
+    @mcp.tool()
+    async def update_agenda_section(
+        meeting_id: str,
+        section_id: str,
+        title: str | None = None,
+        type: str | None = None,
+        body: str | None = None,
+        organization_id: str | None = None,
+    ) -> dict:
+        """Rename an agenda section, change its type, or replace its text body.
+        Only the fields you pass change; the section's points are untouched."""
+        user_id, active_org, _ = caller()
+        org_id = org_for(organization_id, active_org)
+        sections = await _load_sections(user_id, org_id, meeting_id)
+        section = _find_section(sections, section_id)
+        if title is None and type is None and body is None:
+            raise ApiError(400, "Nothing to update — pass title, type and/or body.")
+        if title is not None:
+            section["title"] = title
+        if type is not None:
+            section["type"] = type
+        if body is not None:
+            section["body"] = body
+        return await _save_sections(user_id, org_id, meeting_id, sections)
+
+    @mcp.tool()
+    async def delete_agenda_section(
+        meeting_id: str, section_id: str, organization_id: str | None = None
+    ) -> dict:
+        """Remove a section from the agenda, along with all of its points."""
+        user_id, active_org, _ = caller()
+        org_id = org_for(organization_id, active_org)
+        sections = await _load_sections(user_id, org_id, meeting_id)
+        _find_section(sections, section_id)  # 404 rather than a silent no-op
+        return await _save_sections(
+            user_id, org_id, meeting_id,
+            [s for s in sections if s.get("id") != section_id],
+        )
+
+    @mcp.tool()
+    async def reorder_agenda_sections(
+        meeting_id: str, section_ids: list[str], organization_id: str | None = None
+    ) -> dict:
+        """Reorder the agenda. Pass every section id in the order you want. Any
+        section you leave out keeps its content and is appended at the end rather
+        than deleted."""
+        user_id, active_org, _ = caller()
+        org_id = org_for(organization_id, active_org)
+        sections = await _load_sections(user_id, org_id, meeting_id)
+        by_id = {s.get("id"): s for s in sections}
+        unknown = [i for i in section_ids if i not in by_id]
+        if unknown:
+            raise ApiError(404, f"Not sections of this meeting: {', '.join(unknown)}")
+        ordered = [by_id[i] for i in section_ids]
+        ordered += [s for s in sections if s.get("id") not in set(section_ids)]
+        return await _save_sections(user_id, org_id, meeting_id, ordered)
+
+    @mcp.tool()
+    async def add_agenda_points(
+        meeting_id: str,
+        section_id: str,
+        points: list[str],
+        level: int = 0,
+        position: int | None = None,
+        organization_id: str | None = None,
+    ) -> dict:
+        """Add points to an agenda section.
+
+        level: 0 for a normal point, 1 for a sub-point indented under the one
+        above it. To build a nested list, call this once per level rather than
+        trying to express nesting inside the strings.
+        position: 0-based index within the section; omit to append."""
+        user_id, active_org, _ = caller()
+        org_id = org_for(organization_id, active_org)
+        sections = await _load_sections(user_id, org_id, meeting_id)
+        section = _find_section(sections, section_id)
+        items = list(section.get("items") or [])
+        new = [{"id": _new_id(), "text": t, "level": int(level)} for t in points]
+        if position is None or position >= len(items):
+            items.extend(new)
+        else:
+            items[max(0, position):max(0, position)] = new
+        section["items"] = items
+        return await _save_sections(user_id, org_id, meeting_id, sections)
+
+    @mcp.tool()
+    async def update_agenda_point(
+        meeting_id: str,
+        section_id: str,
+        point_id: str,
+        text: str | None = None,
+        level: int | None = None,
+        organization_id: str | None = None,
+    ) -> dict:
+        """Edit one point: change its wording, or indent/outdent it by setting
+        level to 1 (sub-point) or 0 (top level)."""
+        user_id, active_org, _ = caller()
+        org_id = org_for(organization_id, active_org)
+        sections = await _load_sections(user_id, org_id, meeting_id)
+        section = _find_section(sections, section_id)
+        if text is None and level is None:
+            raise ApiError(400, "Nothing to update — pass text and/or level.")
+        for item in section.get("items") or []:
+            if item.get("id") == point_id:
+                if text is not None:
+                    item["text"] = text
+                if level is not None:
+                    item["level"] = int(level)
+                return await _save_sections(user_id, org_id, meeting_id, sections)
+        raise ApiError(404, f"No point {point_id} in that section.")
+
+    @mcp.tool()
+    async def delete_agenda_points(
+        meeting_id: str,
+        section_id: str,
+        point_ids: list[str],
+        organization_id: str | None = None,
+    ) -> dict:
+        """Delete one or more points from an agenda section."""
+        user_id, active_org, _ = caller()
+        org_id = org_for(organization_id, active_org)
+        sections = await _load_sections(user_id, org_id, meeting_id)
+        section = _find_section(sections, section_id)
+        items = section.get("items") or []
+        wanted = set(point_ids)
+        missing = wanted - {i.get("id") for i in items}
+        if missing:
+            raise ApiError(404, f"Not points in that section: {', '.join(sorted(missing))}")
+        section["items"] = [i for i in items if i.get("id") not in wanted]
+        return await _save_sections(user_id, org_id, meeting_id, sections)
+
     # ================= notes =================
     @mcp.tool()
     async def list_notes(
@@ -513,8 +739,9 @@ def register_tools(mcp: FastMCP) -> None:
         user_id, active_org, _ = caller()
         org_id = org_for(organization_id, active_org)
         norm_tasks = [
-            {"id": t.get("id") or f"t{i}", "text": t.get("text", ""), "done": bool(t.get("done"))}
-            for i, t in enumerate(tasks or [])
+            {"id": t.get("id") or _new_id(), "text": t.get("text", ""),
+             "done": bool(t.get("done"))}
+            for t in (tasks or [])
         ]
         body = {"title": title, "content": content, "tasks": norm_tasks, "color": color}
         x = await call(
@@ -542,9 +769,9 @@ def register_tools(mcp: FastMCP) -> None:
             body["content"] = content
         if tasks is not None:
             body["tasks"] = [
-                {"id": t.get("id") or f"t{i}", "text": t.get("text", ""),
+                {"id": t.get("id") or _new_id(), "text": t.get("text", ""),
                  "done": bool(t.get("done"))}
-                for i, t in enumerate(tasks)
+                for t in tasks
             ]
         if color is not None:
             body["color"] = color
@@ -552,6 +779,81 @@ def register_tools(mcp: FastMCP) -> None:
             raise ApiError(400, "Nothing to update — pass at least one field.")
         x = await call("PATCH", f"/api/boxes/{box_id}", user_id=user_id, org_id=org_id, json=body)
         return _box_brief(x)
+
+    # ---- box checklists ----
+    # A box's tasks are one JSON list, so these are read-modify-write like the
+    # agenda. Reading a single box needs no GET endpoint: PATCH with an empty
+    # body uses exclude_unset, so nothing is written and no activity notification
+    # fires - it returns the box as-is.
+    async def _load_box(user_id, org_id, box_id) -> dict:
+        return await call(
+            "PATCH", f"/api/boxes/{box_id}", user_id=user_id, org_id=org_id, json={}
+        )
+
+    async def _save_tasks(user_id, org_id, box_id, tasks) -> dict:
+        x = await call(
+            "PATCH", f"/api/boxes/{box_id}", user_id=user_id, org_id=org_id,
+            json={"tasks": tasks},
+        )
+        return _box_brief(x)
+
+    @mcp.tool()
+    async def add_box_tasks(
+        box_id: str,
+        texts: list[str],
+        position: int | None = None,
+        organization_id: str | None = None,
+    ) -> dict:
+        """Add checklist items to a box, keeping the ones already there.
+        position is a 0-based index; omit to append at the end."""
+        user_id, active_org, _ = caller()
+        org_id = org_for(organization_id, active_org)
+        tasks = list((await _load_box(user_id, org_id, box_id)).get("tasks") or [])
+        new = [{"id": _new_id(), "text": t, "done": False} for t in texts]
+        if position is None or position >= len(tasks):
+            tasks.extend(new)
+        else:
+            tasks[max(0, position):max(0, position)] = new
+        return await _save_tasks(user_id, org_id, box_id, tasks)
+
+    @mcp.tool()
+    async def update_box_task(
+        box_id: str,
+        task_id: str,
+        text: str | None = None,
+        done: bool | None = None,
+        organization_id: str | None = None,
+    ) -> dict:
+        """Reword a checklist item or tick/untick it, leaving the rest alone."""
+        user_id, active_org, _ = caller()
+        org_id = org_for(organization_id, active_org)
+        tasks = list((await _load_box(user_id, org_id, box_id)).get("tasks") or [])
+        if text is None and done is None:
+            raise ApiError(400, "Nothing to update — pass text and/or done.")
+        for t in tasks:
+            if t.get("id") == task_id:
+                if text is not None:
+                    t["text"] = text
+                if done is not None:
+                    t["done"] = bool(done)
+                return await _save_tasks(user_id, org_id, box_id, tasks)
+        raise ApiError(404, f"No checklist item {task_id} in that box.")
+
+    @mcp.tool()
+    async def delete_box_tasks(
+        box_id: str, task_ids: list[str], organization_id: str | None = None
+    ) -> dict:
+        """Delete checklist items from a box."""
+        user_id, active_org, _ = caller()
+        org_id = org_for(organization_id, active_org)
+        tasks = list((await _load_box(user_id, org_id, box_id)).get("tasks") or [])
+        wanted = set(task_ids)
+        missing = wanted - {t.get("id") for t in tasks}
+        if missing:
+            raise ApiError(404, f"Not items in that box: {', '.join(sorted(missing))}")
+        return await _save_tasks(
+            user_id, org_id, box_id, [t for t in tasks if t.get("id") not in wanted]
+        )
 
     @mcp.tool()
     async def delete_box(box_id: str, organization_id: str | None = None) -> dict:
