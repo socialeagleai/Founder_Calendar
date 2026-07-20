@@ -80,4 +80,11 @@ secrets are introduced.
 
 Point the client at `https://mcp.fc.socialeagle.ai/mcp`. In Claude, add it as a
 custom connector; the OAuth login flow runs in the browser and the user signs in
-with their Founder Calendar email + password.
+with their Founder Calendar email + password, or with Google.
+
+The Google button appears only when `GOOGLE_CLIENT_ID` is set on the `mcp`
+service (it is, in `docker-compose.vps.yml`) **and** the OAuth client lists
+`https://mcp.fc.socialeagle.ai` under **Authorized JavaScript origins** — GSI is
+origin-checked, so without that entry the button renders but refuses to open.
+It is not optional cosmetics: accounts created through Google have
+`hashed_password NULL`, so the password form can never authenticate them.

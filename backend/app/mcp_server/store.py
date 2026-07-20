@@ -86,6 +86,28 @@ def authenticate_user(email: str, password: str) -> User | None:
         db.close()
 
 
+def find_or_create_google_user(email: str, name: str) -> User:
+    """Resolve the account behind a verified Google identity.
+
+    Mirrors the main app's POST /api/auth/google: matching is by email alone
+    (there is no google_id column), and an unknown email creates the account.
+    A pre-existing local account with the same address is reused as-is, which
+    is safe only because the caller has already checked `email_verified` on the
+    ID token - Google has attested the caller owns the address.
+    """
+    db = SessionLocal()
+    try:
+        user = db.query(User).filter(User.email == email).first()
+        if not user:
+            user = User(name=name, email=email, hashed_password=None, provider="google")
+            db.add(user)
+            db.commit()
+            db.refresh(user)
+        return user
+    finally:
+        db.close()
+
+
 def get_user(user_id: str) -> User | None:
     db = SessionLocal()
     try:

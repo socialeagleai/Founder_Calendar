@@ -96,6 +96,11 @@ services:
       MCP_BACKEND_URL: "http://backend:8000"
       MCP_ACCESS_TOKEN_TTL_MINUTES: "60"
       MCP_REFRESH_TOKEN_TTL_DAYS: "30"
+      # Puts "Sign in with Google" on the consent page. Required for accounts
+      # created via Google, which have no password to type. Needs
+      # https://mcp.fc.socialeagle.ai in the OAuth client's Authorized
+      # JavaScript origins; unset simply hides the button.
+      GOOGLE_CLIENT_ID: "815688246946-fc023atjo0dkeo2pqua2difekf3c11qa.apps.googleusercontent.com"
     command: uvicorn app.mcp_main:app --host 0.0.0.0 --port 9000
     ports:
       # Bound to localhost — only nginx (on this host) reaches it. Public access
