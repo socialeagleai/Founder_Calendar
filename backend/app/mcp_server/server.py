@@ -3,12 +3,15 @@
 Run with:  uvicorn app.mcp_main:app --port 9000
 """
 
+from urllib.parse import urlsplit
+
 from mcp.server.auth.settings import (
     AuthSettings,
     ClientRegistrationOptions,
     RevocationOptions,
 )
 from mcp.server.fastmcp import FastMCP
+from mcp.server.transport_security import TransportSecuritySettings
 from pydantic import AnyHttpUrl
 
 from ..config import settings
@@ -22,6 +25,24 @@ SCOPES = ["calendar"]
 
 _issuer = AnyHttpUrl(settings.mcp_issuer_url)
 
+# DNS-rebinding protection defaults to allowing NOTHING, so every request
+# arriving with our real public Host was rejected 421 Misdirected Request -
+# after a fully successful OAuth handshake, which made it look like a login
+# failure. The host must be derived from MCP_ISSUER_URL rather than hardcoded,
+# so it cannot drift from the hostname we actually serve on.
+_issuer_host = urlsplit(settings.mcp_issuer_url).netloc
+_security = TransportSecuritySettings(
+    enable_dns_rebinding_protection=True,
+    # ":*" permits any port on the same host (local runs bind :9000/:9002).
+    allowed_hosts=[_issuer_host, f"{_issuer_host}:*", "localhost", "localhost:*",
+                   "127.0.0.1", "127.0.0.1:*"],
+    # Origin is absent on server-to-server calls (which is what Claude makes) and
+    # absence passes. Listed here for browser-based clients; a client calling from
+    # another web origin needs adding, so the failure mode is a clear 421, not a
+    # silent bypass. Real access control is the OAuth bearer token, not this.
+    allowed_origins=[settings.mcp_issuer_url.rstrip("/"), "https://claude.ai"],
+)
+
 mcp = FastMCP(
     name="Founder Calendar",
     instructions=(
@@ -32,6 +53,7 @@ mcp = FastMCP(
         "adding them as a meeting attendee."
     ),
     stateless_http=True,
+    transport_security=_security,
     auth_server_provider=provider,
     auth=AuthSettings(
         issuer_url=_issuer,
