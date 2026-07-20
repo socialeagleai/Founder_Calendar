@@ -659,20 +659,26 @@ def register_tools(mcp: FastMCP) -> None:
     async def update_note(
         note_id: str,
         content: str,
-        visibility: str = "everyone",
+        visibility: str | None = None,
         visible_departments: list[str] | None = None,
         visible_members: list[str] | None = None,
         organization_id: str | None = None,
     ) -> dict:
-        """Replace a note's content (and audience). content is required."""
+        """Replace a note's content. content is required.
+
+        The audience is left exactly as it was unless you pass `visibility` —
+        editing the wording of a private note must never widen who can read it."""
         user_id, active_org, _ = caller()
         org_id = org_for(organization_id, active_org)
-        body = {
-            "content": content,
-            "visibility": visibility,
-            "visibleDepartments": visible_departments or [],
-            "visibleMembers": visible_members or [],
-        }
+        body: dict[str, Any] = {"content": content}
+        # The API only reassigns the audience when `visibility` is present in the
+        # payload (it checks model_fields_set), so omitting these keys preserves
+        # it. Sending a default here would silently republish a private note to
+        # the whole org on a pure text edit.
+        if visibility is not None:
+            body["visibility"] = visibility
+            body["visibleDepartments"] = visible_departments or []
+            body["visibleMembers"] = visible_members or []
         n = await call("PUT", f"/api/notes/{note_id}", user_id=user_id, org_id=org_id, json=body)
         return _note_brief(n)
 
@@ -862,6 +868,67 @@ def register_tools(mcp: FastMCP) -> None:
         org_id = org_for(organization_id, active_org)
         await call("DELETE", f"/api/boxes/{box_id}", user_id=user_id, org_id=org_id)
         return {"deleted": box_id}
+
+    @mcp.tool()
+    async def update_board(
+        board_id: str,
+        title: str | None = None,
+        visibility: str | None = None,
+        visible_departments: list[str] | None = None,
+        visible_members: list[str] | None = None,
+        organization_id: str | None = None,
+    ) -> dict:
+        """Rename a board or change who can see it. Only what you pass changes —
+        the audience is untouched unless you pass `visibility`."""
+        user_id, active_org, _ = caller()
+        org_id = org_for(organization_id, active_org)
+        body: dict[str, Any] = {}
+        if title is not None:
+            body["title"] = title
+        if visibility is not None:
+            body["visibility"] = visibility
+            body["visibleDepartments"] = visible_departments or []
+            body["visibleMembers"] = visible_members or []
+        if not body:
+            raise ApiError(400, "Nothing to update — pass title and/or visibility.")
+        b = await call(
+            "PATCH", f"/api/boards/{board_id}", user_id=user_id, org_id=org_id, json=body
+        )
+        return _board_brief(b)
+
+    @mcp.tool()
+    async def copy_board(
+        board_id: str,
+        date: str,
+        title: str | None = None,
+        organization_id: str | None = None,
+    ) -> dict:
+        """Copy a board (with all its boxes and checklists) onto another date.
+        The copy belongs to you and starts with the same audience as the source."""
+        user_id, active_org, _ = caller()
+        org_id = org_for(organization_id, active_org)
+        body: dict[str, Any] = {"date": date}
+        if title is not None:
+            body["title"] = title
+        b = await call(
+            "POST", f"/api/boards/{board_id}/copy", user_id=user_id, org_id=org_id, json=body
+        )
+        return _board_brief(b)
+
+    @mcp.tool()
+    async def share_board(board_id: str, organization_id: str | None = None) -> dict:
+        """Create (or fetch) a PUBLIC read-only link to a board.
+
+        Anyone with the link can read the board without signing in — it is not
+        limited to the organization. Only do this when the user has clearly asked
+        to share a board publicly. Reuses the existing link if one exists."""
+        user_id, active_org, _ = caller()
+        org_id = org_for(organization_id, active_org)
+        res = await call(
+            "POST", f"/api/boards/{board_id}/share", user_id=user_id, org_id=org_id
+        )
+        return {"boardId": board_id, "shareToken": res["token"],
+                "note": "Anyone with this token can read the board without signing in."}
 
     @mcp.tool()
     async def delete_board(board_id: str, organization_id: str | None = None) -> dict:
@@ -1147,6 +1214,169 @@ def register_tools(mcp: FastMCP) -> None:
             "POST", "/api/organization/leave", user_id=user_id, org_id=org_id
         )
         return {"detail": (res or {}).get("detail", "Leave request sent.")}
+
+    # ================= invitations & leave requests =================
+    @mcp.tool()
+    async def list_invitations() -> list[dict]:
+        """Organizations that have invited the caller and are awaiting a reply."""
+        user_id, _, _ = caller()
+        rows = await call("GET", "/api/invitations", user_id=user_id) or []
+        return [
+            {"id": r["id"], "organizationId": r.get("organizationId"),
+             "organizationName": r.get("organizationName"), "role": r.get("role")}
+            for r in rows
+        ]
+
+    @mcp.tool()
+    async def accept_invitation(invitation_id: str) -> dict:
+        """Join an organization the caller was invited to."""
+        user_id, _, _ = caller()
+        r = await call("POST", f"/api/invitations/{invitation_id}/accept", user_id=user_id)
+        return {"joined": (r or {}).get("organizationName"),
+                "organizationId": (r or {}).get("organizationId")}
+
+    @mcp.tool()
+    async def decline_invitation(invitation_id: str) -> dict:
+        """Decline an invitation to join an organization."""
+        user_id, _, _ = caller()
+        await call("POST", f"/api/invitations/{invitation_id}/decline", user_id=user_id)
+        return {"declined": invitation_id}
+
+    @mcp.tool()
+    async def list_leave_requests() -> list[dict]:
+        """Members asking to leave an organization the caller owns, awaiting
+        approval. `id` is the team member id."""
+        user_id, _, _ = caller()
+        rows = await call("GET", "/api/leave-requests", user_id=user_id) or []
+        return [
+            {"id": r["id"], "organizationId": r.get("organizationId"),
+             "organizationName": r.get("organizationName"),
+             "memberName": r.get("memberName"), "memberEmail": r.get("memberEmail")}
+            for r in rows
+        ]
+
+    @mcp.tool()
+    async def accept_leave_request(member_id: str) -> dict:
+        """Approve a member's request to leave — this REMOVES them from the
+        organization."""
+        user_id, _, _ = caller()
+        await call("POST", f"/api/leave-requests/{member_id}/accept", user_id=user_id)
+        return {"removed": member_id}
+
+    @mcp.tool()
+    async def decline_leave_request(member_id: str) -> dict:
+        """Decline a member's request to leave; they stay in the organization."""
+        user_id, _, _ = caller()
+        r = await call("POST", f"/api/leave-requests/{member_id}/decline", user_id=user_id)
+        return {"detail": (r or {}).get("detail", "Leave request declined.")}
+
+    # ================= notifications & profile =================
+    @mcp.tool()
+    async def list_notifications(organization_id: str | None = None) -> list[dict]:
+        """The caller's unread in-app notifications, newest first."""
+        user_id, active_org, _ = caller()
+        org_id = org_for(organization_id, active_org)
+        rows = await call(
+            "GET", "/api/notifications", user_id=user_id, org_id=org_id
+        ) or []
+        return [
+            {"id": r["id"], "message": r.get("message"), "type": r.get("type"),
+             "link": r.get("link") or None, "createdAt": r.get("createdAt")}
+            for r in rows
+        ]
+
+    @mcp.tool()
+    async def dismiss_notification(
+        notification_id: str, organization_id: str | None = None
+    ) -> dict:
+        """Mark one notification as read."""
+        user_id, active_org, _ = caller()
+        org_id = org_for(organization_id, active_org)
+        await call(
+            "POST", f"/api/notifications/{notification_id}/dismiss",
+            user_id=user_id, org_id=org_id,
+        )
+        return {"dismissed": notification_id}
+
+    @mcp.tool()
+    async def get_notification_preferences() -> dict:
+        """The caller's notification settings: which categories are on, whether
+        email/push are enabled, and when the daily digest is sent."""
+        user_id, _, _ = caller()
+        return await call("GET", "/api/notifications/preferences", user_id=user_id)
+
+    @mcp.tool()
+    async def update_notification_preferences(
+        shared_with_me: bool | None = None,
+        activity: bool | None = None,
+        mentions: bool | None = None,
+        daily_agenda: bool | None = None,
+        meeting_invites: bool | None = None,
+        meeting_reminders: bool | None = None,
+        email_enabled: bool | None = None,
+        push_enabled: bool | None = None,
+        digest_hour: int | None = None,
+        timezone: str | None = None,
+    ) -> dict:
+        """Change notification settings. Only what you pass changes.
+
+        digest_hour is 0-23 and timezone is an IANA name — both are personal and
+        control the daily agenda email only, unlike the org-wide timezone that
+        decides meeting times."""
+        user_id, _, _ = caller()
+        body = {
+            k: v
+            for k, v in {
+                "sharedWithMe": shared_with_me,
+                "activity": activity,
+                "mentions": mentions,
+                "dailyAgenda": daily_agenda,
+                "meetingInvites": meeting_invites,
+                "meetingReminders": meeting_reminders,
+                "emailEnabled": email_enabled,
+                "pushEnabled": push_enabled,
+                "digestHour": digest_hour,
+                "timezone": timezone,
+            }.items()
+            if v is not None
+        }
+        if not body:
+            raise ApiError(400, "Nothing to update — pass at least one setting.")
+        return await call(
+            "PATCH", "/api/notifications/preferences", user_id=user_id, json=body
+        )
+
+    @mcp.tool()
+    async def get_my_access(organization_id: str | None = None) -> dict:
+        """What the caller is allowed to do in the active org: their role, whether
+        they own it, and their per-page permissions. Useful before attempting an
+        edit that might be refused."""
+        user_id, active_org, _ = caller()
+        org_id = org_for(organization_id, active_org)
+        return await call("GET", "/api/auth/access", user_id=user_id, org_id=org_id)
+
+    @mcp.tool()
+    async def update_profile(
+        name: str | None = None, email: str | None = None
+    ) -> dict:
+        """Change the caller's own display name or sign-in email.
+
+        Password changes are deliberately not available here: an AI client
+        already acts as the user, so setting a password gains nothing, while a
+        misread instruction would lock them out of their own account. Direct them
+        to Settings → Profile in the app instead."""
+        user_id, _, _ = caller()
+        me = await call("GET", "/api/auth/me", user_id=user_id)
+        if name is None and email is None:
+            raise ApiError(400, "Nothing to update — pass name and/or email.")
+        # PATCH /profile requires both fields; send the current value for the one
+        # not being changed rather than blanking it.
+        body = {
+            "name": name if name is not None else me["name"],
+            "email": email if email is not None else me["email"],
+        }
+        u = await call("PATCH", "/api/auth/profile", user_id=user_id, json=body)
+        return {"id": u["id"], "name": u["name"], "email": u["email"]}
 
     @mcp.tool()
     async def delete_organization(
