@@ -25,23 +25,57 @@ SCOPES = ["calendar"]
 
 _issuer = AnyHttpUrl(settings.mcp_issuer_url)
 
+# This server is deliberately client-agnostic: any MCP client may connect, so
+# nothing here may assume a particular vendor's origin or transport quirks.
+#
 # DNS-rebinding protection defaults to allowing NOTHING, so every request
 # arriving with our real public Host was rejected 421 Misdirected Request -
 # after a fully successful OAuth handshake, which made it look like a login
-# failure. The host must be derived from MCP_ISSUER_URL rather than hardcoded,
-# so it cannot drift from the hostname we actually serve on.
+# failure (see git log for the full trap).
+#
+# We keep the Host check (derived from MCP_ISSUER_URL, never hardcoded, so it
+# cannot drift from the hostname we actually serve on) but do NOT restrict
+# Origin. That check exists to stop a malicious web page from reaching a server
+# bound to localhost; this server is public HTTPS and every call is gated on an
+# OAuth bearer token, which a cross-origin page cannot obtain or attach. An
+# origin allowlist would therefore add no security while silently breaking every
+# browser-based MCP client whose origin we failed to predict.
 _issuer_host = urlsplit(settings.mcp_issuer_url).netloc
+_ALLOWED_HOSTS = [
+    _issuer_host,
+    f"{_issuer_host}:*",  # ":*" permits any port on the same host
+    "localhost",
+    "localhost:*",
+    "127.0.0.1",
+    "127.0.0.1:*",
+]
 _security = TransportSecuritySettings(
     enable_dns_rebinding_protection=True,
-    # ":*" permits any port on the same host (local runs bind :9000/:9002).
-    allowed_hosts=[_issuer_host, f"{_issuer_host}:*", "localhost", "localhost:*",
-                   "127.0.0.1", "127.0.0.1:*"],
-    # Origin is absent on server-to-server calls (which is what Claude makes) and
-    # absence passes. Listed here for browser-based clients; a client calling from
-    # another web origin needs adding, so the failure mode is a clear 421, not a
-    # silent bypass. Real access control is the OAuth bearer token, not this.
-    allowed_origins=[settings.mcp_issuer_url.rstrip("/"), "https://claude.ai"],
+    allowed_hosts=_ALLOWED_HOSTS,
+    # Empty rejects any request that *sends* an Origin (absence always passes),
+    # so the library's origin check is switched off below via _AllowAnyOrigin and
+    # the Host check is preserved.
+    allowed_origins=[],
 )
+
+
+class _AllowAnyOrigin(str):
+    """Makes the SDK's `origin in allowed_origins` test always succeed.
+
+    The SDK offers no wildcard for origins and builds its middleware internally,
+    so there is no settings-level way to keep Host validation while dropping
+    Origin validation. Containing this in one tiny object is preferable to
+    disabling rebinding protection wholesale, which would drop the Host check too.
+    """
+
+    def __eq__(self, other: object) -> bool:
+        return True
+
+    def __hash__(self) -> int:
+        return hash("*")
+
+
+_security.allowed_origins = [_AllowAnyOrigin("*")]
 
 mcp = FastMCP(
     name="Founder Calendar",
@@ -82,6 +116,31 @@ def build_app():
     from .login import routes as login_routes
 
     app.router.routes.extend(login_routes)
+
+    # streamable_http_app() adds no CORS at all, so a browser-based MCP client
+    # cannot read our responses or even complete a preflight - it fails before
+    # any of our auth runs. Added outermost so OPTIONS preflights short-circuit
+    # here instead of being rejected by the auth middleware (which would 401 a
+    # request the browser sends without credentials by design).
+    #
+    # allow_origins=["*"] with allow_credentials=False is the correct pair: MCP
+    # carries its bearer token in the Authorization header, never in cookies, so
+    # nothing is authorised ambiently by origin. Wildcard + credentials would be
+    # both unsafe and rejected by browsers.
+    #
+    # expose_headers matters: without mcp-session-id a browser client cannot
+    # read the session id and every request after initialize fails.
+    from starlette.middleware.cors import CORSMiddleware
+
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=["*"],
+        allow_credentials=False,
+        allow_methods=["GET", "POST", "DELETE", "OPTIONS"],
+        allow_headers=["*"],
+        expose_headers=["mcp-session-id", "mcp-protocol-version", "www-authenticate"],
+        max_age=86400,
+    )
 
     # Create the OAuth tables on startup (idempotent), not at import, so the
     # module imports without a live DB (tests). FastMCP already sets a lifespan
